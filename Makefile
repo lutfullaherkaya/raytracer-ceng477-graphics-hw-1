@@ -1,5 +1,5 @@
-OBJS	= parcer.o ppm.o raytracer.o tinyxml2.o
-SOURCE	= parcer.cpp ppm.cpp raytracer.cpp tinyxml2.cpp
+OBJS	= parser.o ppm.o raytracer.o tinyxml2.o
+SOURCE	= parser.cpp ppm.cpp raytracer.cpp tinyxml2.cpp
 HEADER	= parser.h ppm.h tinyxml2.h
 OUT	= raytracer
 CC	 = g++
@@ -9,8 +9,8 @@ LFLAGS	 =
 all: $(OBJS)
 	$(CC) -g $(OBJS) -o $(OUT) $(LFLAGS)
 
-parcer.o: parcer.cpp
-	$(CC) $(FLAGS) parcer.cpp -std=c11
+parser.o: parser.cpp
+	$(CC) $(FLAGS) parser.cpp -std=c11
 
 ppm.o: ppm.cpp
 	$(CC) $(FLAGS) ppm.cpp -std=c11
