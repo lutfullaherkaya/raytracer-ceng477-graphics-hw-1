@@ -35,9 +35,9 @@ public:
     }
 
 
-    IntersectionPoint intersects(Scene &scene, Sphere &sphere) {
-        auto c = scene.vertex_data[sphere.center_vertex_id - 1];
-        auto r = sphere.radius;
+    IntersectionPoint intersects(Scene &scene, MySphere mySphere) {
+        auto c = mySphere.c;
+        auto r = mySphere.r;
         auto d = direction;
         auto o = origin;
 
@@ -112,6 +112,12 @@ public:
 
 
     void rayTrace() {
+        std::vector<MySphere> meshBoundingSpheres;
+        for (auto &mesh : scene.meshes) {
+            meshBoundingSpheres.push_back(scene.getBoundingSphere(mesh));
+        }
+        int boundingMeshHit = 0;
+        int boundingMeshMiss = 0;
         for (auto camera: scene.cameras) {
             auto *image = new unsigned char[camera.image_width * camera.image_height * 3];
             int imagePtr = 0;
@@ -122,15 +128,15 @@ public:
 
                     auto raytracedColor = scene.background_color;
 
-                    for (auto sphere: scene.spheres) {
-                        auto intersectionPoint = eyeRay.intersects(scene, sphere);
+                    for (auto &sphere: scene.spheres) {
+                        auto intersectionPoint = eyeRay.intersects(scene, { scene.vertex_data[sphere.center_vertex_id - 1], sphere.radius});
                         if (intersectionPoint.exists) {
                             raytracedColor.x = 255;
                             raytracedColor.y = 0;
                             raytracedColor.z = 0;
                         }
                     }
-                    for (auto triangle: scene.triangles) {
+                    for (auto &triangle: scene.triangles) {
                         auto intersectionPoint = eyeRay.intersects(scene, triangle.indices, triangle.material_id);
                         if (intersectionPoint.exists) {
                             raytracedColor.x = 255;
@@ -138,15 +144,22 @@ public:
                             raytracedColor.z = 0;
                         }
                     }
-                    for (auto mesh: scene.meshes) {
-                        for (auto face: mesh.faces) {
-                            auto intersectionPoint = eyeRay.intersects(scene, face, mesh.material_id);
-                            if (intersectionPoint.exists) {
-                                raytracedColor.x = 0;
-                                raytracedColor.y = 0;
-                                raytracedColor.z = 255;
+                    for (int meshIndex = 0; meshIndex < scene.meshes.size(); meshIndex++) {
+                        if (eyeRay.intersects(scene, meshBoundingSpheres[meshIndex]).exists) {
+                            boundingMeshHit++;
+                            auto & mesh = scene.meshes[meshIndex];
+                            for (auto &face: mesh.faces) {
+                                auto intersectionPoint = eyeRay.intersects(scene, face, mesh.material_id);
+                                if (intersectionPoint.exists) {
+                                    raytracedColor.x = 0;
+                                    raytracedColor.y = 0;
+                                    raytracedColor.z = 255;
+                                }
                             }
+                        } else {
+                            boundingMeshMiss++;
                         }
+
                     }
 
                     image[imagePtr++] = raytracedColor.x;
@@ -155,7 +168,9 @@ public:
                 }
             }
             write_ppm(camera.image_name.c_str(), image, camera.image_width, camera.image_height);
-            std::cout << camera.image_name;
+            std::cout << camera.image_name << std::endl;
+            printf("meshBoundingSphereHits %%%.1f \n", 100 * boundingMeshHit/(double)boundingMeshMiss);
+
         }
 
     }

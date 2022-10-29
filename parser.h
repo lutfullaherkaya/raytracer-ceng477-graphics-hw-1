@@ -3,6 +3,8 @@
 
 #include <string>
 #include <vector>
+#include <cmath>
+#include <limits>
 
 namespace parser
 {
@@ -35,6 +37,10 @@ namespace parser
 
         Vec3f crossProduct(const Vec3f &v) const {
             return Vec3f{y * v.z - z * v.y, z * v.x - x * v.z, x * v.y - y * v.x};
+        }
+
+        float distance(const Vec3f &v) const {
+            return sqrt(pow(x - v.x, 2) + pow(y - v.y, 2) + pow(z - v.z, 2));
         }
 
 
@@ -84,6 +90,22 @@ namespace parser
         int v2_id;
     };
 
+    struct Sphere;
+
+    struct Sphere
+    {
+        int material_id;
+        int center_vertex_id;
+        float radius;
+    };
+
+    struct MySphere {
+        Vec3f c;
+        float r;
+        MySphere(Vec3f c, float r) : c(c), r(r) {}
+    };
+
+
     struct Mesh
     {
         int material_id;
@@ -98,12 +120,7 @@ namespace parser
         Triangle(int material_id, Face indices) : material_id(material_id), indices(indices) {}
     };
 
-    struct Sphere
-    {
-        int material_id;
-        int center_vertex_id;
-        float radius;
-    };
+
 
     struct Scene
     {
@@ -122,6 +139,37 @@ namespace parser
 
         //Functions
         void loadFromXml(const std::string &filepath);
+
+        MySphere getBoundingSphere(Mesh mesh) {
+            Vec3f min = {std::numeric_limits<float>::max(), std::numeric_limits<float>::max(), std::numeric_limits<float>::max()};
+            Vec3f max = {-std::numeric_limits<float>::max(), -std::numeric_limits<float>::max(), -std::numeric_limits<float>::max()};
+            for (auto &face: mesh.faces) {
+                for (auto &vertexId: {face.v0_id, face.v1_id, face.v2_id}) {
+                    auto &vertex = vertex_data[vertexId - 1];
+                    if (vertex.x < min.x) {
+                        min.x = vertex.x;
+                    }
+                    if (vertex.y < min.y) {
+                        min.y = vertex.y;
+                    }
+                    if (vertex.z < min.z) {
+                        min.z = vertex.z;
+                    }
+                    if (vertex.x > max.x) {
+                        max.x = vertex.x;
+                    }
+                    if (vertex.y > max.y) {
+                        max.y = vertex.y;
+                    }
+                    if (vertex.z > max.z) {
+                        max.z = vertex.z;
+                    }
+                }
+            }
+            auto center = (min + max) * 0.5;
+            auto radius = center.distance(max);
+            return {center, radius};
+        }
     };
 }
 
