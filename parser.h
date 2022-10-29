@@ -6,6 +6,8 @@
 
 namespace parser
 {
+
+
     //Notice that all the structures are as simple as possible
     //so that you are not enforced to adopt any style or design.
     struct Vec3f
@@ -19,6 +21,10 @@ namespace parser
             return Vec3f{x * f, y * f, z * f};
         }
 
+        float operator*(const Vec3f &v) const {
+            return x * v.x + y * v.y + z * v.z;
+        }
+
         Vec3f operator-(const Vec3f &v) const {
             return Vec3f{x - v.x, y - v.y, z - v.z};
         }
@@ -30,6 +36,8 @@ namespace parser
         Vec3f crossProduct(const Vec3f &v) const {
             return Vec3f{y * v.z - z * v.y, z * v.x - x * v.z, x * v.y - y * v.x};
         }
+
+
     };
 
     struct Vec3i
@@ -86,6 +94,7 @@ namespace parser
     {
         int material_id;
         Face indices;
+        Triangle(int material_id, Face indices) : material_id(material_id), indices(indices) {}
     };
 
     struct Sphere
