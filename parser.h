@@ -18,6 +18,18 @@ namespace parser
         Vec3f operator*(float f) const {
             return Vec3f{x * f, y * f, z * f};
         }
+
+        Vec3f operator-(const Vec3f &v) const {
+            return Vec3f{x - v.x, y - v.y, z - v.z};
+        }
+
+        Vec3f operator-() const {
+            return Vec3f{-x, -y, -z};
+        }
+
+        Vec3f crossProduct(const Vec3f &v) const {
+            return Vec3f{y * v.z - z * v.y, z * v.x - x * v.z, x * v.y - y * v.x};
+        }
     };
 
     struct Vec3i
