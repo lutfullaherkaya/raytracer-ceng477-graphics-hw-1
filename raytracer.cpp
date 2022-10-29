@@ -3,22 +3,33 @@
 #include "ppm.h"
 
 typedef unsigned char RGB[3];
+using namespace parser;
 
-class RayTracer
-{
+class Ray {
+    Vec3f origin;
+    Vec3f direction;
+
+    Ray(Vec3f origin, Vec3f direction) {
+        this->origin = origin;
+        this->direction = direction;
+    }
+
+    Vec3f getPoint(float t) {
+        return origin + direction * t;
+    }
+};
+
+class RayTracer {
 public:
     RayTracer(parser::Scene &scene) {
         this->scene = scene;
     }
-    void rayTrace()
-    {
-        for (auto camera : scene.cameras)
-        {
+
+    void rayTrace() {
+        for (auto camera: scene.cameras) {
             unsigned char *image = new unsigned char[camera.image_width * camera.image_height * 3];
-            for (int i = 0; i < camera.image_height; i++)
-            {
-                for (int j = 0; j < camera.image_width; j++)
-                {
+            for (int i = 0; i < camera.image_height; i++) {
+                for (int j = 0; j < camera.image_width; j++) {
                     RGB raytracedColor = {0, 0, 0};
 
                     // do raytrace
@@ -28,10 +39,10 @@ public:
                     image[i++] = raytracedColor[2];
                 }
             }
-            write_ppm(camera.image_name.c_str(), image, camera.image_width , camera.image_height);
+            write_ppm(camera.image_name.c_str(), image, camera.image_width, camera.image_height);
             std::cout << camera.image_name;
         }
-        
+
     }
 
 private:
@@ -39,8 +50,7 @@ private:
 
 };
 
-int main(int argc, char *argv[])
-{
+int main(int argc, char *argv[]) {
     // Sample usage for reading an XML scene file
     parser::Scene scene;
 
