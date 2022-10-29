@@ -2,8 +2,9 @@
 #include "parser.h"
 #include "ppm.h"
 #include <cmath>
+#include <chrono>
 
-typedef unsigned char RGB[3];
+
 using namespace parser;
 
 
@@ -21,7 +22,6 @@ struct IntersectionPoint {
 };
 
 class Ray {
-
     Vec3f getPoint(float t) { // t >= 0
         return origin + direction * t;
     }
@@ -55,7 +55,8 @@ public:
 
     }
 
-    bool intersects(Scene &scene, Face &face, int material_id) {
+    IntersectionPoint intersects(Scene &scene, Face &face, int material_id) {
+        IntersectionPoint point = {0, 0, false};
         auto a = scene.vertex_data[face.v0_id - 1];
         auto b = scene.vertex_data[face.v1_id - 1];
         auto c = scene.vertex_data[face.v2_id - 1];
@@ -91,11 +92,14 @@ public:
         float alpha = 1 - beta - gamma;
         float tMin = 0;
 
-        return alpha >= 0 &&
-               beta >= 0 &&
-               gamma >= 0 &&
-               t >= tMin;
-
+        if (alpha >= 0 &&
+            beta >= 0 &&
+            gamma >= 0 &&
+            t >= tMin) {
+            point.exists = true;
+            point.t1 = t;
+        }
+        return point;
 
     }
 };
@@ -109,68 +113,45 @@ public:
 
     void rayTrace() {
         for (auto camera: scene.cameras) {
-            unsigned char *image = new unsigned char[camera.image_width * camera.image_height * 3];
+            auto *image = new unsigned char[camera.image_width * camera.image_height * 3];
             int imagePtr = 0;
             for (int j = 0; j < camera.image_height; j++) {
                 std::cout << 100 * j / (double) camera.image_height << '%' << std::endl;
                 for (int i = 0; i < camera.image_width; i++) {
+                    Ray eyeRay = generateEyeRay(camera, i, j);
 
-
-                    auto e = camera.position;
-                    auto w = -camera.gaze;
-                    auto distance = camera.near_distance;
-
-                    auto l = camera.near_plane.x;
-                    auto r = camera.near_plane.y;
-                    auto b = camera.near_plane.z;
-                    auto t = camera.near_plane.w;
-
-                    auto v = camera.up;
-                    auto u = v.crossProduct(w);
-                    auto nx = camera.image_width;
-                    auto ny = camera.image_height;
-
-                    auto m = e + -w * distance;
-                    auto q = m + u * l + v * t;
-
-                    float su = (i + 0.5) * (r - l) / nx;
-                    float sv = (j + 0.5) * (t - b) / ny;
-
-                    auto s = q + u * su - v * sv;
-
-                    Ray eyeRay(e, s - e);
-
-                    RGB raytracedColor = {0, 0, 0};
+                    auto raytracedColor = scene.background_color;
 
                     for (auto sphere: scene.spheres) {
                         auto intersectionPoint = eyeRay.intersects(scene, sphere);
                         if (intersectionPoint.exists) {
-                            raytracedColor[0] = 255;
-                            raytracedColor[1] = 0;
-                            raytracedColor[2] = 0;
+                            raytracedColor.x = 255;
+                            raytracedColor.y = 0;
+                            raytracedColor.z = 0;
                         }
                     }
                     for (auto triangle: scene.triangles) {
-                        if (eyeRay.intersects(scene, triangle.indices, triangle.material_id)) {
-                            raytracedColor[0] = 255;
-                            raytracedColor[1] = 255;
-                            raytracedColor[2] = 0;
+                        auto intersectionPoint = eyeRay.intersects(scene, triangle.indices, triangle.material_id);
+                        if (intersectionPoint.exists) {
+                            raytracedColor.x = 255;
+                            raytracedColor.y = 255;
+                            raytracedColor.z = 0;
                         }
                     }
                     for (auto mesh: scene.meshes) {
                         for (auto face: mesh.faces) {
-                            if (eyeRay.intersects(scene, face, mesh.material_id)) {
-                                raytracedColor[0] = 0;
-                                raytracedColor[1] = 0;
-                                raytracedColor[2] = 255;
+                            auto intersectionPoint = eyeRay.intersects(scene, face, mesh.material_id);
+                            if (intersectionPoint.exists) {
+                                raytracedColor.x = 0;
+                                raytracedColor.y = 0;
+                                raytracedColor.z = 255;
                             }
                         }
                     }
-                    // todo: raytracing
 
-                    image[imagePtr++] = raytracedColor[0];
-                    image[imagePtr++] = raytracedColor[1];
-                    image[imagePtr++] = raytracedColor[2];
+                    image[imagePtr++] = raytracedColor.x;
+                    image[imagePtr++] = raytracedColor.y;
+                    image[imagePtr++] = raytracedColor.z;
                 }
             }
             write_ppm(camera.image_name.c_str(), image, camera.image_width, camera.image_height);
@@ -179,6 +160,31 @@ public:
 
     }
 
+    static Ray generateEyeRay(Camera &camera, int i, int j) {
+        auto e = camera.position;
+        auto w = -camera.gaze;
+        auto distance = camera.near_distance;
+
+        auto l = camera.near_plane.x;
+        auto r = camera.near_plane.y;
+        auto b = camera.near_plane.z;
+        auto t = camera.near_plane.w;
+
+        auto v = camera.up;
+        auto u = v.crossProduct(w);
+        auto nx = camera.image_width;
+        auto ny = camera.image_height;
+
+        auto m = e + -w * distance;
+        auto q = m + u * l + v * t;
+
+        float su = (i + 0.5) * (r - l) / nx;
+        float sv = (j + 0.5) * (t - b) / ny;
+
+        auto s = q + u * su - v * sv;
+
+        return {e, s - e};
+    }
 
 private:
     parser::Scene scene;
@@ -186,18 +192,14 @@ private:
 };
 
 int main(int argc, char *argv[]) {
-    // Sample usage for reading an XML scene file
     parser::Scene scene;
-
     scene.loadFromXml(argv[1]);
 
-    // The code below creates a test pattern and writes
-    // it to a PPM file to demonstrate the usage of the
-    // ppm_write function.
-    //
-    // Normally, you would be running your ray tracing
-    // code here to produce the desired image.
-
+    auto begin = std::chrono::high_resolution_clock::now();
     RayTracer raytracer(scene);
     raytracer.rayTrace();
+    auto end = std::chrono::high_resolution_clock::now();
+
+    auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin);
+    printf("\nRendered in %.3f seconds.\n", elapsed.count() * 1e-9);
 }

@@ -94,6 +94,7 @@ namespace parser
     {
         int material_id;
         Face indices;
+        Triangle() = default;
         Triangle(int material_id, Face indices) : material_id(material_id), indices(indices) {}
     };
 
