@@ -203,7 +203,8 @@ public:
             leftBox.max[newAxis] = mediumPoint;
             rightBox.min[newAxis] = mediumPoint;
 
-            if (leftBox.dimensions() > Vec3f(0.01,0.01,0.01) && rightBox.dimensions() > Vec3f(0.01,0.01,0.01) && leftBox.is3d() && rightBox.is3d()) {
+            if (leftBox.dimensions() > Vec3f(0.01, 0.01, 0.01) && rightBox.dimensions() > Vec3f(0.01, 0.01, 0.01) &&
+                leftBox.is3d() && rightBox.is3d()) {
                 node->left = build(depth + 1, leftHalf, scene, tVertices,
                                    leftBox, true, mediumPoint);
                 node->right = build(depth + 1, rightHalf, scene, tVertices,
@@ -212,8 +213,6 @@ public:
 
 
         }
-
-
 
 
         return node;
@@ -233,11 +232,11 @@ public:
         std::vector<KdThree3dNode *> leftNodes;
         std::vector<KdThree3dNode *> rightNodes;
         if (left) {
-             leftNodes = left->intersectingNodes(ray);
+            leftNodes = left->intersectingNodes(ray);
         }
 
         if (right) {
-             rightNodes = right->intersectingNodes(ray);
+            rightNodes = right->intersectingNodes(ray);
         }
 
         leftNodes.insert(leftNodes.end(), rightNodes.begin(), rightNodes.end());
@@ -254,58 +253,62 @@ public:
     }
 };
 
-int KdThree3dNode::maxDepth = 16;
 
-class KdThree3d {
+class OctaTreeNode {
 public:
-    KdThree3dNode *root;
-    Scene &scene;
-    std::vector<TriangleVertex> tVertices;
+    OctaTreeNode *nextNode;
+    Box box;
+    int depth;
+    std::vector<int> v_ids;
 
-    KdThree3d(Scene &scene, std::vector<Mesh> &meshes) : scene(scene) {
-        // all vertices of all triangles
+    static OctaTreeNode *build(std::vector<int> v_ids_new, Scene &scene, Box box, int depth) {
+        if (v_ids_new.size() > 0) {
+            auto *node = new OctaTreeNode();
+            node->box = box;
+            node->depth = depth;
+            node->nextNode = nullptr;
+            node->v_ids = v_ids_new;
 
-        for (auto &mesh: meshes) {
-            for (auto &face: mesh.faces) {
-                tVertices.push_back({face.v0_id, &face, mesh.material_id});
-                tVertices.push_back({face.v1_id, &face, mesh.material_id});
-                tVertices.push_back({face.v2_id, &face, mesh.material_id});
+            if (depth < 3) {
+                OctaTreeNode* currentNode = node;
+                for (int i = 0; i < 8; ++i) {
+                    Box newBox = box;
+                    newBox.min = box.min + (box.max - box.min) * (Vec3f(i % 2, i / 2, i / 4)) / 2;
+                    std::vector<int> v_ids_new_new;
+                    for (auto id: v_ids_new) {
+                        if (newBox.contains(scene.vertex_data[id-1])) {
+                            v_ids_new_new.push_back(id);
+                        }
+                    }
+                    currentNode->nextNode = build(v_ids_new_new, scene, newBox, depth + 1);
+                    currentNode = currentNode->nextNode;
+                }
             }
+
+
+
+            return node;
         }
-
-        std::list<int> tVertexIndices;
-        for (int i = 0; i < tVertices.size(); i++) {
-            tVertexIndices.push_back(i);
-        }
-
-
-        root = KdThree3dNode::build(0,
-                                    tVertexIndices,
-                                    scene,
-                                    tVertices,
-                                    scene.getBoundingBox(tVertices, tVertexIndices),
-                                    true,
-                                    0);
-
-
-    }
-
-    std::vector<TriangleVertex> intersectingVertices(Ray &ray) {
-        std::vector<TriangleVertex> result;
-        auto nodes = root->intersectingNodes(ray);
-        for (auto node : nodes) {
-            for (auto i: node->tVertexIndices) {
-                result.push_back(tVertices[i]);
-            }
-        }
-        return result;
-    }
-
-    ~KdThree3d() {
-        delete root;
+        return nullptr;
     }
 };
 
+class OctaTree {
+public:
+    Mesh &mesh;
+    Scene &scene;
+    OctaTreeNode *root;
+
+    OctaTree(Mesh &mesh, Scene &scene) : mesh(mesh), scene(scene) {
+        std::vector<int> v_ids;
+        for (auto face: mesh.faces) {
+            v_ids.push_back(face.v0_id);
+            v_ids.push_back(face.v1_id);
+            v_ids.push_back(face.v2_id);
+        }
+        root = OctaTreeNode::build(v_ids, scene, scene.getBoundingBox(v_ids), 0);
+    }
+};
 
 class RayTracer {
 public:
@@ -316,12 +319,13 @@ public:
 
     void rayTrace() {
         std::vector<MySphere> meshBoundingSpheres;
+        std::vector<OctaTree> meshTrees;
         for (auto &mesh: scene.meshes) {
             meshBoundingSpheres.push_back(scene.getBoundingSphere(mesh));
+            meshTrees.push_back(OctaTree(mesh, scene));
         }
         int boundingMeshHit = 0;
         int boundingMeshMiss = 0;
-        KdThree3d kdTree = KdThree3d(scene, scene.meshes);
 
         for (auto camera: scene.cameras) {
             auto *image = new unsigned char[camera.image_width * camera.image_height * 3];
@@ -354,33 +358,15 @@ public:
                             raytracedColor.z = 0;
                         }
                     }
-                    auto rayIntersectingVertices = kdTree.intersectingVertices(eyeRay);
-                    for (auto &vertex: rayIntersectingVertices) {
-                        auto intersectionPoint = eyeRay.intersects(scene, *vertex.face, vertex.v_id);
-                        if (intersectionPoint.exists) {
-                            raytracedColor.x = 0;
-                            raytracedColor.y = 0;
-                            raytracedColor.z = 255;
-                        }
-                    }
-                    /*for (int meshIndex = 0; meshIndex < scene.meshes.size(); meshIndex++) {
+
+                    for (int meshIndex = 0; meshIndex < scene.meshes.size(); meshIndex++) {
                         if (eyeRay.intersects(scene, meshBoundingSpheres[meshIndex]).exists) {
                             boundingMeshHit++;
                             auto &mesh = scene.meshes[meshIndex];
                             for (auto &face: mesh.faces) {
                                 auto intersectionPoint = eyeRay.intersects(scene, face, mesh.material_id);
                                 if (intersectionPoint.exists) {
-                                    if (raytracedColor.z != 255) { // todo: sil
-                                        auto rayIntersectingVertices = kdTree.intersectingVertices(eyeRay);
-                                        for (auto &vertex: rayIntersectingVertices) {
-                                            auto intersectionPoint = eyeRay.intersects(scene, *vertex.face, vertex.v_id);
-                                            if (intersectionPoint.exists) {
-                                                raytracedColor.x = 0;
-                                                raytracedColor.y = 0;
-                                                raytracedColor.z = 255;
-                                            }
-                                        }
-                                    }
+
                                     raytracedColor.x = 0;
                                     raytracedColor.y = 0;
                                     raytracedColor.z = 255;
@@ -392,7 +378,7 @@ public:
                             boundingMeshMiss++;
                         }
 
-                    }*/
+                    }
 
                     image[imagePtr++] = raytracedColor.x;
                     image[imagePtr++] = raytracedColor.y;

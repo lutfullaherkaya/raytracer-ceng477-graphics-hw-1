@@ -26,6 +26,10 @@ namespace parser {
             return Vec3f{x + v.x, y + v.y, z + v.z};
         }
 
+        Vec3f operator+(float f) const {
+            return Vec3f{x + f, y + f, z + f};
+        }
+
         Vec3f operator*(float f) const {
             return Vec3f{x * f, y * f, z * f};
         }
@@ -184,6 +188,12 @@ namespace parser {
             }
             return false;
         }
+
+        bool contains(Vec3f point) {
+            return point.x >= min.x && point.x <= max.x &&
+                   point.y >= min.y && point.y <= max.y &&
+                   point.z >= min.z && point.z <= max.z;
+        };
     };
 
 
@@ -248,13 +258,13 @@ namespace parser {
             return {center, radius};
         }
 
-        Box getBoundingBox(std::vector<TriangleVertex> &triangleVertices, std::list<int> &tVertexIndices) {
+        Box getBoundingBox(std::vector<int> &v_ids) {
             Vec3f min = {std::numeric_limits<float>::max(), std::numeric_limits<float>::max(),
                          std::numeric_limits<float>::max()};
             Vec3f max = {-std::numeric_limits<float>::max(), -std::numeric_limits<float>::max(),
                          -std::numeric_limits<float>::max()};
-            for (auto i: tVertexIndices) {
-                auto &vertex = vertex_data[triangleVertices[i].v_id - 1];
+            for (auto i: v_ids) {
+                auto &vertex = vertex_data[i - 1];
                 for (int j = 0; j < 3; j++) {
                     if (vertex[j] < min[j]) {
                         min[j] = vertex[j];
