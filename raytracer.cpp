@@ -152,20 +152,20 @@ public:
 
 
 
-struct SphereTreeNode {
-    SphereTreeNode() = default;
+struct BVHNode {
+    BVHNode() = default;
 
     int depth = 0;
     std::list<Face> faces; // is empty if not leaf.
     Box box{};
-    SphereTreeNode *left = nullptr, *right = nullptr;
+    BVHNode *left = nullptr, *right = nullptr;
 
-    static SphereTreeNode *build(std::list<Face> faces, int depth, Scene &scene) {
+    static BVHNode *build(std::list<Face> faces, int depth, Scene &scene) {
         if (faces.empty()) {
             return nullptr;
         }
 
-        auto *node = new SphereTreeNode();
+        auto *node = new BVHNode();
         node->depth = depth;
         node->box = scene.getBoundingBox(faces);
 
@@ -198,14 +198,14 @@ struct SphereTreeNode {
 };
 
 
-struct SphereTree {
-    SphereTreeNode *root;
+struct BVHTree {
+    BVHNode *root;
     Mesh &mesh;
     Scene &scene;
 
-    SphereTree(Mesh &mesh, Scene &scene) : mesh(mesh), scene(scene) {
+    BVHTree(Mesh &mesh, Scene &scene) : mesh(mesh), scene(scene) {
         std::list<Face> faceList(mesh.faces.begin(), mesh.faces.end());
-        root = SphereTreeNode::build(faceList, 0, scene);
+        root = BVHNode::build(faceList, 0, scene);
     }
 
 };
@@ -216,7 +216,7 @@ public:
         this->scene = scene;
     }
 
-    std::vector<SphereTree> meshSphereTrees;
+    std::vector<BVHTree> meshTrees;
 
     void rayTrace() {
         for (auto camera: scene.cameras) {
@@ -249,8 +249,8 @@ public:
                     }
                     for (int meshIndex = 0; meshIndex < scene.meshes.size(); meshIndex++) {
 
-                        std::stack<SphereTreeNode *> stack;
-                        stack.push(meshSphereTrees[meshIndex].root);
+                        std::stack<BVHNode *> stack;
+                        stack.push(meshTrees[meshIndex].root);
                         while (!stack.empty()) {
                             auto node = stack.top();
                             stack.pop();
@@ -330,7 +330,7 @@ int main(int argc, char *argv[]) {
 
     auto begin1 = std::chrono::high_resolution_clock::now();
     for (auto &mesh: scene.meshes) {
-        raytracer.meshSphereTrees.emplace_back(mesh, scene);
+        raytracer.meshTrees.emplace_back(mesh, scene);
     }
     auto end1 = std::chrono::high_resolution_clock::now();
 
