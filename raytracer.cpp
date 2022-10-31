@@ -4,6 +4,7 @@
 #include <cmath>
 #include <chrono>
 #include <list>
+#include <stack>
 
 
 using namespace parser;
@@ -105,11 +106,13 @@ public:
     }
 };
 
+#define MAX_DEPTH 8
+
 struct SphereTreeNode {
     SphereTreeNode() = default;
 
     int depth = 0;
-    std::list<Face> faces;
+    std::list<Face> faces; // is empty if not leaf.
     MySphere sphere{};
     SphereTreeNode *left = nullptr, *right = nullptr;
 
@@ -117,14 +120,14 @@ struct SphereTreeNode {
         if (faces.empty()) {
             return nullptr;
         }
+
         auto *node = new SphereTreeNode();
-        node->faces = faces;
         node->depth = depth;
         node->sphere = scene.getBoundingSphere(faces);
-        if (depth < 0) {
-            std::list<Face> leftHalf = {};
-            std::list<Face> rightHalf = {};
 
+        if (faces.size() <= 1 || depth >= MAX_DEPTH) {
+            node->faces = faces; // is leaf node
+        } else {
 
             int axis = depth % 3;
             // sort faces
@@ -134,41 +137,19 @@ struct SphereTreeNode {
                 return vertexA[axis] < vertexB[axis];
             });
 
-            int i = 0;
-            for (auto &face: faces) {
-                if (i < faces.size() / 2) {
-                    leftHalf.push_back(face);
-                } else {
-                    rightHalf.push_back(face);
-                }
-                i++;
-            }
-
+            std::list<Face> &leftHalf = faces;
+            std::list<Face> rightHalf = {};
+            auto halfItr = std::next(leftHalf.begin(), leftHalf.size() / 2);
+            leftHalf.splice(rightHalf.begin(), leftHalf, halfItr, leftHalf.end());
 
             node->right = build(rightHalf, depth + 1, scene);
             node->left = build(leftHalf, depth + 1, scene);
+
         }
+
         return node;
     }
 
-    std::list<Face> hittingFaces(Ray ray, Scene &scene) {
-        std::list<Face> faces;
-        if (ray.intersects(scene, sphere).exists) {
-            if (left) {
-                faces.splice(faces.end(), left->hittingFaces(ray, scene));
-            }
-            if (right) {
-                faces.splice(faces.end(), right->hittingFaces(ray, scene));
-            }
-
-            if (faces.empty()) {
-                return this->faces;
-            }
-
-
-        }
-        return faces;
-    }
 
 };
 
@@ -191,16 +172,9 @@ public:
         this->scene = scene;
     }
 
+    std::vector<SphereTree> meshSphereTrees;
 
     void rayTrace() {
-        std::vector<MySphere> meshBoundingSpheres;
-        std::vector<SphereTree> sphereTrees;
-        for (auto &mesh: scene.meshes) {
-            meshBoundingSpheres.push_back(scene.getBoundingSphere(mesh.faces));
-            sphereTrees.emplace_back(mesh, scene);
-        }
-        int boundingMeshHit = 0;
-        int boundingMeshMiss = 0;
         for (auto camera: scene.cameras) {
             auto *image = new unsigned char[camera.image_width * camera.image_height * 3];
             int imagePtr = 0;
@@ -230,29 +204,33 @@ public:
                         }
                     }
                     for (int meshIndex = 0; meshIndex < scene.meshes.size(); meshIndex++) {
-                        for (auto face: sphereTrees[meshIndex].root->hittingFaces(eyeRay, scene)) {
-                            auto &mesh = scene.meshes[meshIndex];
-                            auto intersectionPoint = eyeRay.intersects(scene, face, mesh.material_id);
-                            if (intersectionPoint.exists) {
-                                raytracedColor.x = 0;
-                                raytracedColor.y = 0;
-                                raytracedColor.z = 255;
-                            }
-                        }
-                        /*if (eyeRay.intersects(scene, meshBoundingSpheres[meshIndex]).exists) {
-                            boundingMeshHit++;
-                            auto &mesh = scene.meshes[meshIndex];
-                            for (auto &face: mesh.faces) {
-                                auto intersectionPoint = eyeRay.intersects(scene, face, mesh.material_id);
-                                if (intersectionPoint.exists) {
-                                    raytracedColor.x = 0;
-                                    raytracedColor.y = 0;
-                                    raytracedColor.z = 255;
+
+                        std::stack<SphereTreeNode *> stack;
+                        stack.push(meshSphereTrees[meshIndex].root);
+                        while (!stack.empty()) {
+                            auto node = stack.top();
+                            stack.pop();
+                            if (eyeRay.intersects(scene, node->sphere).exists) {
+                                if (node->left) {
+                                    stack.push(node->left);
+                                }
+                                if (node->right) {
+                                    stack.push(node->right);
+                                }
+                                if (!node->left && !node->right) {
+                                    for (auto face: node->faces) {
+                                        auto &mesh = scene.meshes[meshIndex];
+                                        auto intersectionPoint = eyeRay.intersects(scene, face, mesh.material_id);
+                                        if (intersectionPoint.exists) {
+                                            raytracedColor.x = 0;
+                                            raytracedColor.y = 0;
+                                            raytracedColor.z = 255;
+                                        }
+                                    }
                                 }
                             }
-                        } else {
-                            boundingMeshMiss++;
-                        }*/
+                        }
+
 
                     }
 
@@ -263,7 +241,6 @@ public:
             }
             write_ppm(camera.image_name.c_str(), image, camera.image_width, camera.image_height);
             std::cout << camera.image_name << std::endl;
-            printf("meshBoundingSphereHits %%%.1f \n", 100 * boundingMeshHit / (double) boundingMeshMiss);
 
         }
 
@@ -304,11 +281,21 @@ int main(int argc, char *argv[]) {
     parser::Scene scene;
     scene.loadFromXml(argv[1]);
 
-    auto begin = std::chrono::high_resolution_clock::now();
     RayTracer raytracer(scene);
-    raytracer.rayTrace();
-    auto end = std::chrono::high_resolution_clock::now();
 
-    auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin);
-    printf("\nRendered in %.3f seconds.\n", elapsed.count() * 1e-9);
+
+    auto begin1 = std::chrono::high_resolution_clock::now();
+    for (auto &mesh: scene.meshes) {
+        raytracer.meshSphereTrees.emplace_back(mesh, scene);
+    }
+    auto end1 = std::chrono::high_resolution_clock::now();
+
+    auto begin2 = std::chrono::high_resolution_clock::now();
+    raytracer.rayTrace();
+    auto end2 = std::chrono::high_resolution_clock::now();
+
+    auto elapsed1 = std::chrono::duration_cast<std::chrono::nanoseconds>(end1 - begin1);
+    auto elapsed2 = std::chrono::duration_cast<std::chrono::nanoseconds>(end2 - begin2);
+    printf("\nPlanted trees in %.3f seconds.\n", elapsed1.count() * 1e-9);
+    printf("Rendered in %.3f seconds.\n", elapsed2.count() * 1e-9);
 }
