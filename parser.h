@@ -190,14 +190,13 @@ namespace parser {
             auto radius = center.distance(max);
             return {center, radius};
         }
-        template <typename T>
-        Box getBoundingBox(T &faces) {
+        Box getBoundingBox(std::list<Triangle> &faces) {
             Vec3f min = {std::numeric_limits<float>::max(), std::numeric_limits<float>::max(),
                          std::numeric_limits<float>::max()};
             Vec3f max = {-std::numeric_limits<float>::max(), -std::numeric_limits<float>::max(),
                          -std::numeric_limits<float>::max()};
             for (auto &face: faces) {
-                for (auto &vertexId: {face.v0_id, face.v1_id, face.v2_id}) {
+                for (auto &vertexId: {face.indices.v0_id, face.indices.v1_id, face.indices.v2_id}) {
                     auto &vertex = vertex_data[vertexId - 1];
                     if (vertex.x < min.x) {
                         min.x = vertex.x;

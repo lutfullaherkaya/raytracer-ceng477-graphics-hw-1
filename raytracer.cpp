@@ -7,6 +7,7 @@
 #include <stack>
 
 /* optimization ideas:
+ * - important: also add triangles and sphers to the tree
  * - dont check each mesh one by one, instead use another tree structure to store the meshes
  * - use bounding boxes instead of bounding spheres in tree structure
  * */
@@ -22,7 +23,8 @@ float det(float m[3][3]) {
 }
 
 Vec3f getCenter(Face &face, Scene &scene) {
-    Vec3f center = scene.vertex_data[face.v0_id-1] + scene.vertex_data[face.v1_id-1] + scene.vertex_data[face.v2_id-1];
+    Vec3f center =
+            scene.vertex_data[face.v0_id - 1] + scene.vertex_data[face.v1_id - 1] + scene.vertex_data[face.v2_id - 1];
     return center / 3;
 }
 
@@ -161,11 +163,11 @@ struct BVHNode {
     BVHNode() = default;
 
     int depth = 0;
-    std::list<Face> faces; // is empty if not leaf.
+    std::list<Triangle> faces; // is empty if not leaf.
     Box box{};
     BVHNode *left = nullptr, *right = nullptr;
 
-    static BVHNode *build(std::list<Face> faces, int depth, Scene &scene) {
+    static BVHNode *build(std::list<Triangle> faces, int depth, Scene &scene) {
         if (faces.empty()) {
             return nullptr;
         }
@@ -177,8 +179,8 @@ struct BVHNode {
         if (faces.size() <= 1 || depth >= MAX_DEPTH) {
             node->faces = faces; // is leaf node
         } else {
-            std::list<Face> leftHalf = {};
-            std::list<Face> rightHalf = {};
+            std::list<Triangle> leftHalf = {};
+            std::list<Triangle> rightHalf = {};
 
             int axis = depth % 3;
 
@@ -192,7 +194,7 @@ struct BVHNode {
                 rightHalf.clear();
 
                 for (auto &face: faces) {// splitting by location instad of sorting the faces and splitting from median is way faster
-                    auto vertexPoint = getCenter(face, scene)[axis];
+                    auto vertexPoint = getCenter(face.indices, scene)[axis];
                     if (vertexPoint < midPoint) {
                         leftHalf.push_back(face);
                     } else {
@@ -228,23 +230,21 @@ struct BVHNode {
 
 struct BVHTree {
     BVHNode *root;
-    Mesh &mesh;
     Scene &scene;
 
-    BVHTree(Mesh &mesh, Scene &scene) : mesh(mesh), scene(scene) {
-        std::list<Face> faceList(mesh.faces.begin(), mesh.faces.end());
-        root = BVHNode::build(faceList, 0, scene);
+    BVHTree(std::list<Triangle> triangles, Scene &scene) : scene(scene) {
+        root = BVHNode::build(triangles, 0, scene);
     }
 
 };
 
 class RayTracer {
 public:
-    RayTracer(parser::Scene &scene) {
-        this->scene = scene;
-    }
+    RayTracer(parser::Scene &scene, std::list<Triangle> triangles) : triangleTree(std::move(triangles), scene),
+                                                                     scene(scene) {}
 
-    std::vector<BVHTree> meshTrees;
+
+    BVHTree triangleTree;
 
     void rayTrace() {
         for (auto camera: scene.cameras) {
@@ -267,40 +267,31 @@ public:
                             raytracedColor.z = 0;
                         }
                     }
-                    for (auto &triangle: scene.triangles) {
-                        auto intersectionPoint = eyeRay.intersects(scene, triangle.indices, triangle.material_id);
-                        if (intersectionPoint.exists) {
-                            raytracedColor.x = 255;
-                            raytracedColor.y = 255;
-                            raytracedColor.z = 0;
-                        }
-                    }
-                    for (int meshIndex = 0; meshIndex < scene.meshes.size(); meshIndex++) {
 
-                        std::stack<BVHNode *> stack;
-                        stack.push(meshTrees[meshIndex].root);
-                        while (!stack.empty()) {
-                            auto node = stack.top();
-                            stack.pop();
-                            if (eyeRay.intersects(scene, node->box).exists) {
-                                if (node->left) {
-                                    stack.push(node->left);
-                                }
-                                if (node->right) {
-                                    stack.push(node->right);
-                                }
-                                if (!node->left && !node->right) {
-                                    for (auto face: node->faces) {
-                                        auto &mesh = scene.meshes[meshIndex];
-                                        auto intersectionPoint = eyeRay.intersects(scene, face, mesh.material_id);
-                                        if (intersectionPoint.exists) {
-                                            raytracedColor.x = 0;
-                                            raytracedColor.y = 0;
-                                            raytracedColor.z = 255;
-                                        }
+                    // checks for both triangles and meshes
+                    std::stack<BVHNode *> stack;
+                    stack.push(triangleTree.root);
+                    while (!stack.empty()) {
+                        auto node = stack.top();
+                        stack.pop();
+                        if (eyeRay.intersects(scene, node->box).exists) {
+                            if (node->left) {
+                                stack.push(node->left);
+                            }
+                            if (node->right) {
+                                stack.push(node->right);
+                            }
+                            if (!node->left && !node->right) {
+                                for (auto triangle: node->faces) {
+                                    auto intersectP = eyeRay.intersects(scene, triangle.indices, triangle.material_id);
+                                    if (intersectP.exists) {
+                                        raytracedColor.x = 0;
+                                        raytracedColor.y = 0;
+                                        raytracedColor.z = 255;
                                     }
                                 }
                             }
+
                         }
 
 
@@ -353,13 +344,15 @@ int main(int argc, char *argv[]) {
     parser::Scene scene;
     scene.loadFromXml(argv[1]);
 
-    RayTracer raytracer(scene);
-
 
     auto begin1 = std::chrono::high_resolution_clock::now();
+    std::list<Triangle> triangles(scene.triangles.begin(), scene.triangles.end());
     for (auto &mesh: scene.meshes) {
-        raytracer.meshTrees.emplace_back(mesh, scene);
+        for (auto &face: mesh.faces) {
+            triangles.emplace_back(mesh.material_id, face);
+        }
     }
+    RayTracer raytracer(scene, triangles);
     auto end1 = std::chrono::high_resolution_clock::now();
 
     auto begin2 = std::chrono::high_resolution_clock::now();
