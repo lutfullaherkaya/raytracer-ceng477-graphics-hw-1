@@ -57,6 +57,10 @@ namespace parser {
             }
         }
 
+        Vec3f operator/(float f) const {
+            return Vec3f{x / f, y / f, z / f};
+        }
+
 
     };
 

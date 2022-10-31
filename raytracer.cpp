@@ -21,6 +21,10 @@ float det(float m[3][3]) {
            m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
 }
 
+Vec3f getCenter(Face &face, Scene &scene) {
+    Vec3f center = scene.vertex_data[face.v0_id-1] + scene.vertex_data[face.v1_id-1] + scene.vertex_data[face.v2_id-1];
+    return center / 3;
+}
 
 struct IntersectionPoint {
     float t1, t2;
@@ -61,6 +65,8 @@ public:
         return {0, 0, false};
 
     }
+
+    // source: book
     IntersectionPoint intersects(Scene &scene, Box box) {
         float tmin = (box.min.x - origin.x) / direction.x;
         float tmax = (box.max.x - origin.x) / direction.x;
@@ -148,8 +154,7 @@ public:
     }
 };
 
-#define MAX_DEPTH 8
-
+#define MAX_DEPTH 19
 
 
 struct BVHNode {
@@ -172,22 +177,45 @@ struct BVHNode {
         if (faces.size() <= 1 || depth >= MAX_DEPTH) {
             node->faces = faces; // is leaf node
         } else {
+            std::list<Face> leftHalf = {};
+            std::list<Face> rightHalf = {};
 
             int axis = depth % 3;
-            // sort faces
-            faces.sort([scene, axis](Face &a, Face &b) {
-                auto vertexA = scene.vertex_data[a.v0_id - 1];
-                auto vertexB = scene.vertex_data[b.v0_id - 1];
-                return vertexA[axis] < vertexB[axis];
-            });
 
-            std::list<Face> &leftHalf = faces;
-            std::list<Face> rightHalf = {};
-            auto halfItr = std::next(leftHalf.begin(), leftHalf.size() / 2);
-            leftHalf.splice(rightHalf.begin(), leftHalf, halfItr, leftHalf.end());
 
-            node->right = build(rightHalf, depth + 1, scene);
-            node->left = build(leftHalf, depth + 1, scene);
+            Box currentBox = node->box;
+            auto start = currentBox.min[axis], end = currentBox.max[axis];
+            auto midPoint = (start + end) / 2;
+            int maxTries = 10; // doing this to eliminate empty boxes
+            while (maxTries-- && (leftHalf.empty() || rightHalf.empty())) {
+                leftHalf.clear();
+                rightHalf.clear();
+
+                for (auto &face: faces) {// splitting by location instad of sorting the faces and splitting from median is way faster
+                    auto vertexPoint = getCenter(face, scene)[axis];
+                    if (vertexPoint < midPoint) {
+                        leftHalf.push_back(face);
+                    } else {
+                        rightHalf.push_back(face);
+                    }
+                }
+
+                if (leftHalf.empty()) {
+                    start = midPoint;
+                    midPoint = (start + end) / 2;
+                }
+                if (rightHalf.empty()) {
+                    end = midPoint;
+                    midPoint = (start + end) / 2;
+                }
+            }
+
+            if (leftHalf.empty() || rightHalf.empty()) {
+                node->faces = faces; // is leaf node now because we couldn't split it by space
+            } else {
+                node->right = build(rightHalf, depth + 1, scene);
+                node->left = build(leftHalf, depth + 1, scene);
+            }
 
         }
 
