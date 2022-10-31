@@ -5,16 +5,16 @@
 #include <vector>
 #include <cmath>
 #include <limits>
+#include <list>
 
-namespace parser
-{
+namespace parser {
 
 
     //Notice that all the structures are as simple as possible
     //so that you are not enforced to adopt any style or design.
-    struct Vec3f
-    {
+    struct Vec3f {
         float x, y, z;
+
         Vec3f operator+(const Vec3f &v) const {
             return Vec3f{x + v.x, y + v.y, z + v.z};
         }
@@ -43,21 +43,32 @@ namespace parser
             return sqrt(pow(x - v.x, 2) + pow(y - v.y, 2) + pow(z - v.z, 2));
         }
 
+        // subscript operator
+        float& operator[](int i) {
+            switch (i) {
+                case 0:
+                    return x;
+                case 1:
+                    return y;
+                case 2:
+                    return z;
+                default:
+                    return x;
+            }
+        }
+
 
     };
 
-    struct Vec3i
-    {
+    struct Vec3i {
         int x, y, z;
     };
 
-    struct Vec4f
-    {
+    struct Vec4f {
         float x, y, z, w;
     };
 
-    struct Camera
-    {
+    struct Camera {
         Vec3f position;
         Vec3f gaze;
         Vec3f up;
@@ -67,14 +78,12 @@ namespace parser
         std::string image_name;
     };
 
-    struct PointLight
-    {
+    struct PointLight {
         Vec3f position;
         Vec3f intensity;
     };
 
-    struct Material
-    {
+    struct Material {
         bool is_mirror;
         Vec3f ambient;
         Vec3f diffuse;
@@ -83,8 +92,7 @@ namespace parser
         float phong_exponent;
     };
 
-    struct Face
-    {
+    struct Face {
         int v0_id;
         int v1_id;
         int v2_id;
@@ -92,8 +100,7 @@ namespace parser
 
     struct Sphere;
 
-    struct Sphere
-    {
+    struct Sphere {
         int material_id;
         int center_vertex_id;
         float radius;
@@ -102,28 +109,29 @@ namespace parser
     struct MySphere {
         Vec3f c;
         float r;
+
+        MySphere() = default;
+
         MySphere(Vec3f c, float r) : c(c), r(r) {}
     };
 
 
-    struct Mesh
-    {
+    struct Mesh {
         int material_id;
         std::vector<Face> faces;
     };
 
-    struct Triangle
-    {
+    struct Triangle {
         int material_id;
         Face indices;
+
         Triangle() = default;
+
         Triangle(int material_id, Face indices) : material_id(material_id), indices(indices) {}
     };
 
 
-
-    struct Scene
-    {
+    struct Scene {
         //Data
         Vec3i background_color;
         float shadow_ray_epsilon;
@@ -140,10 +148,13 @@ namespace parser
         //Functions
         void loadFromXml(const std::string &filepath);
 
-        MySphere getBoundingSphere(Mesh mesh) {
-            Vec3f min = {std::numeric_limits<float>::max(), std::numeric_limits<float>::max(), std::numeric_limits<float>::max()};
-            Vec3f max = {-std::numeric_limits<float>::max(), -std::numeric_limits<float>::max(), -std::numeric_limits<float>::max()};
-            for (auto &face: mesh.faces) {
+        template <typename T>
+        MySphere getBoundingSphere(T &faces) {
+            Vec3f min = {std::numeric_limits<float>::max(), std::numeric_limits<float>::max(),
+                         std::numeric_limits<float>::max()};
+            Vec3f max = {-std::numeric_limits<float>::max(), -std::numeric_limits<float>::max(),
+                         -std::numeric_limits<float>::max()};
+            for (auto &face: faces) {
                 for (auto &vertexId: {face.v0_id, face.v1_id, face.v2_id}) {
                     auto &vertex = vertex_data[vertexId - 1];
                     if (vertex.x < min.x) {

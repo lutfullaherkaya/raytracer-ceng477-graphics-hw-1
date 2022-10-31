@@ -3,6 +3,7 @@
 #include "ppm.h"
 #include <cmath>
 #include <chrono>
+#include <list>
 
 
 using namespace parser;
@@ -104,6 +105,86 @@ public:
     }
 };
 
+struct SphereTreeNode {
+    SphereTreeNode() = default;
+
+    int depth = 0;
+    std::list<Face> faces;
+    MySphere sphere{};
+    SphereTreeNode *left = nullptr, *right = nullptr;
+
+    static SphereTreeNode *build(std::list<Face> faces, int depth, Scene &scene) {
+        if (faces.empty()) {
+            return nullptr;
+        }
+        auto *node = new SphereTreeNode();
+        node->faces = faces;
+        node->depth = depth;
+        node->sphere = scene.getBoundingSphere(faces);
+        if (depth < 0) {
+            std::list<Face> leftHalf = {};
+            std::list<Face> rightHalf = {};
+
+
+            int axis = depth % 3;
+            // sort faces
+            faces.sort([scene, axis](Face &a, Face &b) {
+                auto vertexA = scene.vertex_data[a.v0_id - 1];
+                auto vertexB = scene.vertex_data[b.v0_id - 1];
+                return vertexA[axis] < vertexB[axis];
+            });
+
+            int i = 0;
+            for (auto &face: faces) {
+                if (i < faces.size() / 2) {
+                    leftHalf.push_back(face);
+                } else {
+                    rightHalf.push_back(face);
+                }
+                i++;
+            }
+
+
+            node->right = build(rightHalf, depth + 1, scene);
+            node->left = build(leftHalf, depth + 1, scene);
+        }
+        return node;
+    }
+
+    std::list<Face> hittingFaces(Ray ray, Scene &scene) {
+        std::list<Face> faces;
+        if (ray.intersects(scene, sphere).exists) {
+            if (left) {
+                faces.splice(faces.end(), left->hittingFaces(ray, scene));
+            }
+            if (right) {
+                faces.splice(faces.end(), right->hittingFaces(ray, scene));
+            }
+
+            if (faces.empty()) {
+                return this->faces;
+            }
+
+
+        }
+        return faces;
+    }
+
+};
+
+
+struct SphereTree {
+    SphereTreeNode *root;
+    Mesh &mesh;
+    Scene &scene;
+
+    SphereTree(Mesh &mesh, Scene &scene) : mesh(mesh), scene(scene) {
+        std::list<Face> faceList(mesh.faces.begin(), mesh.faces.end());
+        root = SphereTreeNode::build(faceList, 0, scene);
+    }
+
+};
+
 class RayTracer {
 public:
     RayTracer(parser::Scene &scene) {
@@ -113,8 +194,10 @@ public:
 
     void rayTrace() {
         std::vector<MySphere> meshBoundingSpheres;
-        for (auto &mesh : scene.meshes) {
-            meshBoundingSpheres.push_back(scene.getBoundingSphere(mesh));
+        std::vector<SphereTree> sphereTrees;
+        for (auto &mesh: scene.meshes) {
+            meshBoundingSpheres.push_back(scene.getBoundingSphere(mesh.faces));
+            sphereTrees.emplace_back(mesh, scene);
         }
         int boundingMeshHit = 0;
         int boundingMeshMiss = 0;
@@ -129,7 +212,9 @@ public:
                     auto raytracedColor = scene.background_color;
 
                     for (auto &sphere: scene.spheres) {
-                        auto intersectionPoint = eyeRay.intersects(scene, { scene.vertex_data[sphere.center_vertex_id - 1], sphere.radius});
+                        auto intersectionPoint = eyeRay.intersects(scene,
+                                                                   {scene.vertex_data[sphere.center_vertex_id - 1],
+                                                                    sphere.radius});
                         if (intersectionPoint.exists) {
                             raytracedColor.x = 255;
                             raytracedColor.y = 0;
@@ -145,9 +230,18 @@ public:
                         }
                     }
                     for (int meshIndex = 0; meshIndex < scene.meshes.size(); meshIndex++) {
-                        if (eyeRay.intersects(scene, meshBoundingSpheres[meshIndex]).exists) {
+                        for (auto face: sphereTrees[meshIndex].root->hittingFaces(eyeRay, scene)) {
+                            auto &mesh = scene.meshes[meshIndex];
+                            auto intersectionPoint = eyeRay.intersects(scene, face, mesh.material_id);
+                            if (intersectionPoint.exists) {
+                                raytracedColor.x = 0;
+                                raytracedColor.y = 0;
+                                raytracedColor.z = 255;
+                            }
+                        }
+                        /*if (eyeRay.intersects(scene, meshBoundingSpheres[meshIndex]).exists) {
                             boundingMeshHit++;
-                            auto & mesh = scene.meshes[meshIndex];
+                            auto &mesh = scene.meshes[meshIndex];
                             for (auto &face: mesh.faces) {
                                 auto intersectionPoint = eyeRay.intersects(scene, face, mesh.material_id);
                                 if (intersectionPoint.exists) {
@@ -158,7 +252,7 @@ public:
                             }
                         } else {
                             boundingMeshMiss++;
-                        }
+                        }*/
 
                     }
 
@@ -169,7 +263,7 @@ public:
             }
             write_ppm(camera.image_name.c_str(), image, camera.image_width, camera.image_height);
             std::cout << camera.image_name << std::endl;
-            printf("meshBoundingSphereHits %%%.1f \n", 100 * boundingMeshHit/(double)boundingMeshMiss);
+            printf("meshBoundingSphereHits %%%.1f \n", 100 * boundingMeshHit / (double) boundingMeshMiss);
 
         }
 
