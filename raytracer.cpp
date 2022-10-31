@@ -6,6 +6,11 @@
 #include <list>
 #include <stack>
 
+/* optimization ideas:
+ * - dont check each mesh one by one, instead use another tree structure to store the meshes
+ * - use bounding boxes instead of bounding spheres in tree structure
+ * */
+
 
 using namespace parser;
 
@@ -54,6 +59,43 @@ public:
             return {t1, t2, true};
         }
         return {0, 0, false};
+
+    }
+    IntersectionPoint intersects(Scene &scene, Box box) {
+        float tmin = (box.min.x - origin.x) / direction.x;
+        float tmax = (box.max.x - origin.x) / direction.x;
+
+        if (tmin > tmax) std::swap(tmin, tmax);
+
+        float tymin = (box.min.y - origin.y) / direction.y;
+        float tymax = (box.max.y - origin.y) / direction.y;
+
+        if (tymin > tymax) std::swap(tymin, tymax);
+
+        if ((tmin > tymax) || (tymin > tmax))
+            return {0, 0, false};
+
+        if (tymin > tmin)
+            tmin = tymin;
+
+        if (tymax < tmax)
+            tmax = tymax;
+
+        float tzmin = (box.min.z - origin.z) / direction.z;
+        float tzmax = (box.max.z - origin.z) / direction.z;
+
+        if (tzmin > tzmax) std::swap(tzmin, tzmax);
+
+        if ((tmin > tzmax) || (tzmin > tmax))
+            return {0, 0, false};
+
+        if (tzmin > tmin)
+            tmin = tzmin;
+
+        if (tzmax < tmax)
+            tmax = tzmax;
+
+        return {tmin, tmax, true};
 
     }
 
@@ -108,12 +150,14 @@ public:
 
 #define MAX_DEPTH 8
 
+
+
 struct SphereTreeNode {
     SphereTreeNode() = default;
 
     int depth = 0;
     std::list<Face> faces; // is empty if not leaf.
-    MySphere sphere{};
+    Box box{};
     SphereTreeNode *left = nullptr, *right = nullptr;
 
     static SphereTreeNode *build(std::list<Face> faces, int depth, Scene &scene) {
@@ -123,7 +167,7 @@ struct SphereTreeNode {
 
         auto *node = new SphereTreeNode();
         node->depth = depth;
-        node->sphere = scene.getBoundingSphere(faces);
+        node->box = scene.getBoundingBox(faces);
 
         if (faces.size() <= 1 || depth >= MAX_DEPTH) {
             node->faces = faces; // is leaf node
@@ -210,7 +254,7 @@ public:
                         while (!stack.empty()) {
                             auto node = stack.top();
                             stack.pop();
-                            if (eyeRay.intersects(scene, node->sphere).exists) {
+                            if (eyeRay.intersects(scene, node->box).exists) {
                                 if (node->left) {
                                     stack.push(node->left);
                                 }

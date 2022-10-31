@@ -115,6 +115,11 @@ namespace parser {
         MySphere(Vec3f c, float r) : c(c), r(r) {}
     };
 
+    struct Box {
+        Vec3f min, max;
+        Box() = default;
+        Box(Vec3f min, Vec3f max) : min(min), max(max) {}
+    };
 
     struct Mesh {
         int material_id;
@@ -180,6 +185,37 @@ namespace parser {
             auto center = (min + max) * 0.5;
             auto radius = center.distance(max);
             return {center, radius};
+        }
+        template <typename T>
+        Box getBoundingBox(T &faces) {
+            Vec3f min = {std::numeric_limits<float>::max(), std::numeric_limits<float>::max(),
+                         std::numeric_limits<float>::max()};
+            Vec3f max = {-std::numeric_limits<float>::max(), -std::numeric_limits<float>::max(),
+                         -std::numeric_limits<float>::max()};
+            for (auto &face: faces) {
+                for (auto &vertexId: {face.v0_id, face.v1_id, face.v2_id}) {
+                    auto &vertex = vertex_data[vertexId - 1];
+                    if (vertex.x < min.x) {
+                        min.x = vertex.x;
+                    }
+                    if (vertex.y < min.y) {
+                        min.y = vertex.y;
+                    }
+                    if (vertex.z < min.z) {
+                        min.z = vertex.z;
+                    }
+                    if (vertex.x > max.x) {
+                        max.x = vertex.x;
+                    }
+                    if (vertex.y > max.y) {
+                        max.y = vertex.y;
+                    }
+                    if (vertex.z > max.z) {
+                        max.z = vertex.z;
+                    }
+                }
+            }
+            return {min, max};
         }
     };
 }
