@@ -53,6 +53,9 @@ public:
         if (discriminant >= 0) {
             float t1 = (-d * (o - c) - sqrt(discriminant)) / (2 * (d * d));
             float t2 = (-d * (o - c) + sqrt(discriminant)) / (2 * (d * d));
+            if (t1 < 0 & t2 < 0) {
+                return {-1, -1, sphere.material_id, false};
+            }
             return {t1, t2, sphere.material_id, true};
         }
         return {-1, -1, sphere.material_id, false};
@@ -72,7 +75,7 @@ public:
         if (tymin > tymax) std::swap(tymin, tymax);
 
         if ((tmin > tymax) || (tymin > tmax))
-            return {0, 0, false};
+            return {-1, -1, false};
 
         if (tymin > tmin)
             tmin = tymin;
@@ -93,7 +96,9 @@ public:
 
         if (tzmax < tmax)
             tmax = tzmax;
-
+        if (tmin < 0 && tmax < 0) {
+            return {-1, -1, false};
+        }
         return {tmin, tmax, -1, true};
 
     }
@@ -145,62 +150,78 @@ public:
         return point;
 
     }
+
+    std::vector<IntersectionPoint> getIntersectionPoints(Scene &scene, BVHTree &tree) {
+        std::vector<IntersectionPoint> result;
+        std::stack<BVHNode *> stack;
+        stack.push(tree.root);
+        while (!stack.empty()) {
+            auto node = stack.top();
+            stack.pop();
+            if (intersects(scene, node->box).exists) {
+                if (node->left) {
+                    stack.push(node->left);
+                }
+                if (node->right) {
+                    stack.push(node->right);
+                }
+                if (!node->left && !node->right) {
+                    for (auto triangle: node->faces) {
+                        auto intersectionPoint = intersects(scene, triangle);
+                        if (intersectionPoint.exists) {
+                            result.push_back(intersectionPoint);
+                        }
+                    }
+                    for (auto &sphere: node->spheres) {
+                        auto intersectionPoint = intersects(scene, sphere);
+                        if (intersectionPoint.exists) {
+                            result.push_back(intersectionPoint);
+                        }
+                    }
+                }
+
+            }
+        }
+        return result;
+    }
 };
 
 
 class RayTracer {
 public:
-    RayTracer(parser::Scene &scene, std::list<Triangle> triangles) : triangleTree(std::move(triangles), scene),
-                                                                     scene(scene) {}
+    parser::Scene scene;
+    BVHTree tree;
 
+    explicit RayTracer(parser::Scene &scene) : scene(scene), tree(scene) {
+        std::list<Triangle> triangles(scene.triangles.begin(), scene.triangles.end());
+        for (auto &mesh: scene.meshes) {
+            for (auto &face: mesh.faces) {
+                triangles.emplace_back(mesh.material_id, face);
+            }
+        }
+        tree.build(triangles);
+    }
 
-    BVHTree triangleTree;
 
     Image rayTrace(Camera &camera) {
         auto image = new unsigned char[camera.image_width * camera.image_height * 3];
         int imagePtr = 0;
         for (int j = 0; j < camera.image_height; j++) {
-            std::cout << 100 * j / (double) camera.image_height << '%' << std::endl;
             for (int i = 0; i < camera.image_width; i++) {
                 Ray eyeRay = generateEyeRay(camera, i, j);
-
                 auto raytracedColor = scene.background_color;
-                // checks for both triangles and meshes
-                std::stack<BVHNode *> stack;
-                stack.push(triangleTree.root);
-                while (!stack.empty()) {
-                    auto node = stack.top();
-                    stack.pop();
-                    if (eyeRay.intersects(scene, node->box).exists) {
-                        if (node->left) {
-                            stack.push(node->left);
-                        }
-                        if (node->right) {
-                            stack.push(node->right);
-                        }
-                        if (!node->left && !node->right) {
-                            for (auto triangle: node->faces) {
-                                auto intersectP = eyeRay.intersects(scene, triangle);
-                                if (intersectP.exists) {
-                                    raytracedColor.x = 0;
-                                    raytracedColor.y = 0;
-                                    raytracedColor.z = 255;
-                                }
-                            }
-                            for (auto &sphere: node->spheres) {
-                                auto intersectionPoint = eyeRay.intersects(scene, sphere);
-                                if (intersectionPoint.exists) {
-                                    raytracedColor.x = 255;
-                                    raytracedColor.y = 0;
-                                    raytracedColor.z = 0;
-                                }
-                            }
-                        }
 
+                std::vector<IntersectionPoint> intersectionPoints = eyeRay.getIntersectionPoints(scene, tree);
+                for (auto &point: intersectionPoints) {
+                    if (point.t1 < 0) {
+                        continue;
                     }
-
-
+                    auto &material = scene.materials[point.material_id];
+                    raytracedColor.x = material.diffuse.x * 255;
+                    raytracedColor.y = material.diffuse.y * 255;
+                    raytracedColor.z = material.diffuse.z * 255;
                 }
+
 
                 image[imagePtr++] = raytracedColor.x;
                 image[imagePtr++] = raytracedColor.y;
@@ -237,8 +258,6 @@ public:
         return {e, s - e};
     }
 
-private:
-    parser::Scene scene;
 
 };
 
@@ -248,26 +267,23 @@ int main(int argc, char *argv[]) {
 
 
     auto begin1 = std::chrono::high_resolution_clock::now();
-    std::list<Triangle> triangles(scene.triangles.begin(), scene.triangles.end());
-    for (auto &mesh: scene.meshes) {
-        for (auto &face: mesh.faces) {
-            triangles.emplace_back(mesh.material_id, face);
-        }
-    }
-    RayTracer rayTracer(scene, triangles);
+    RayTracer rayTracer(scene);
     auto end1 = std::chrono::high_resolution_clock::now();
 
 
     auto begin2 = std::chrono::high_resolution_clock::now();
-    for (auto camera: scene.cameras) {
-        auto image = rayTracer.rayTrace(camera);
-        write_ppm(camera.image_name.c_str(), image, camera.image_width, camera.image_height);
-        std::cout << camera.image_name << std::endl;
+    int renderCount = 10; // todo: make it 1. 10 is for performance measurement
+    for (int i = 0; i < renderCount; ++i) {
+        for (auto camera: scene.cameras) {
+            auto image = rayTracer.rayTrace(camera);
+            write_ppm(camera.image_name.c_str(), image, camera.image_width, camera.image_height);
+        }
     }
+
     auto end2 = std::chrono::high_resolution_clock::now();
 
     auto elapsed1 = std::chrono::duration_cast<std::chrono::nanoseconds>(end1 - begin1);
     auto elapsed2 = std::chrono::duration_cast<std::chrono::nanoseconds>(end2 - begin2);
     printf("\nPlanted trees in %.3f seconds.\n", elapsed1.count() * 1e-9);
-    printf("Rendered in %.3f seconds.\n", elapsed2.count() * 1e-9);
+    printf("Rendered in %.3f seconds.\n", elapsed2.count() * 1e-9 / renderCount);
 }

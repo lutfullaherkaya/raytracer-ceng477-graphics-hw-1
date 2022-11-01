@@ -96,6 +96,7 @@ struct BVHNode {
     }
 
 
+
 };
 
 
@@ -103,9 +104,13 @@ struct BVHTree {
     BVHNode *root;
     Scene &scene;
 
-    BVHTree(std::list<Triangle> triangles, Scene &scene) : scene(scene) {
+    explicit BVHTree(Scene &scene) : root(nullptr), scene(scene) {}
+
+    void build(std::list<Triangle> triangles) {
         root = BVHNode::build(std::move(triangles), {scene.spheres.begin(), scene.spheres.end()}, 0, scene);
     }
+
+
 
 };
 
