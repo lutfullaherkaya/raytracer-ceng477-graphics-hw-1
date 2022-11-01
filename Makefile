@@ -1,9 +1,9 @@
 OBJS	= parser.o ppm.o raytracer.o tinyxml2.o
 SOURCE	= parser.cpp ppm.cpp raytracer.cpp tinyxml2.cpp
-HEADER	= parser.h ppm.h tinyxml2.h
+HEADER	= parser.h ppm.h tinyxml2.h bvh.h
 OUT	= raytracer
 CC	 = g++
-FLAGS	 = -g -c -Wall -O3
+FLAGS	 = -g -c -Wall  -O3 # todo: o3 ekle
 LFLAGS	 = 
 
 all: $(OBJS)

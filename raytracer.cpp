@@ -1,20 +1,15 @@
-#include <iostream>
 #include "parser.h"
 #include "ppm.h"
+#include "bvh.h"
+
+#include <iostream>
 #include <cmath>
 #include <chrono>
 #include <list>
 #include <stack>
-
-/* optimization ideas:
- * - important: also add triangles and sphers to the tree
- * - dont check each mesh one by one, instead use another tree structure to store the meshes
- * - use bounding boxes instead of bounding spheres in tree structure
- * */
-
+#include <utility>
 
 using namespace parser;
-
 
 float det(float m[3][3]) {
     return m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) -
@@ -22,15 +17,11 @@ float det(float m[3][3]) {
            m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
 }
 
-Vec3f getCenter(Face &face, Scene &scene) {
-    Vec3f center =
-            scene.vertex_data[face.v0_id - 1] + scene.vertex_data[face.v1_id - 1] + scene.vertex_data[face.v2_id - 1];
-    return center / 3;
-}
 
 struct IntersectionPoint {
     float t1, t2;
     //Vec3f normal;
+    int material_id;
     bool exists;
 };
 
@@ -48,9 +39,9 @@ public:
     }
 
 
-    IntersectionPoint intersects(Scene &scene, MySphere mySphere) {
-        auto c = mySphere.c;
-        auto r = mySphere.r;
+    IntersectionPoint intersects(Scene &scene, Sphere sphere) {
+        auto c = scene.vertex_data[sphere.center_vertex_id - 1];
+        auto r = sphere.radius;
         auto d = direction;
         auto o = origin;
 
@@ -62,9 +53,9 @@ public:
         if (discriminant >= 0) {
             float t1 = (-d * (o - c) - sqrt(discriminant)) / (2 * (d * d));
             float t2 = (-d * (o - c) + sqrt(discriminant)) / (2 * (d * d));
-            return {t1, t2, true};
+            return {t1, t2, sphere.material_id, true};
         }
-        return {0, 0, false};
+        return {-1, -1, sphere.material_id, false};
 
     }
 
@@ -103,15 +94,15 @@ public:
         if (tzmax < tmax)
             tmax = tzmax;
 
-        return {tmin, tmax, true};
+        return {tmin, tmax, -1, true};
 
     }
 
-    IntersectionPoint intersects(Scene &scene, Face &face, int material_id) {
-        IntersectionPoint point = {0, 0, false};
-        auto a = scene.vertex_data[face.v0_id - 1];
-        auto b = scene.vertex_data[face.v1_id - 1];
-        auto c = scene.vertex_data[face.v2_id - 1];
+    IntersectionPoint intersects(Scene &scene, Triangle &triangle) {
+        IntersectionPoint point = {-1, -1, triangle.material_id, false};
+        auto a = scene.vertex_data[triangle.indices.v0_id - 1];
+        auto b = scene.vertex_data[triangle.indices.v1_id - 1];
+        auto c = scene.vertex_data[triangle.indices.v2_id - 1];
 
         float A[3][3] = {
                 {a.x - b.x, a.x - c.x, direction.x},
@@ -156,87 +147,6 @@ public:
     }
 };
 
-#define MAX_DEPTH 19
-
-
-struct BVHNode {
-    BVHNode() = default;
-
-    int depth = 0;
-    std::list<Triangle> faces; // is empty if not leaf.
-    Box box{};
-    BVHNode *left = nullptr, *right = nullptr;
-
-    static BVHNode *build(std::list<Triangle> faces, int depth, Scene &scene) {
-        if (faces.empty()) {
-            return nullptr;
-        }
-
-        auto *node = new BVHNode();
-        node->depth = depth;
-        node->box = scene.getBoundingBox(faces);
-
-        if (faces.size() <= 1 || depth >= MAX_DEPTH) {
-            node->faces = faces; // is leaf node
-        } else {
-            std::list<Triangle> leftHalf = {};
-            std::list<Triangle> rightHalf = {};
-
-            int axis = depth % 3;
-
-
-            Box currentBox = node->box;
-            auto start = currentBox.min[axis], end = currentBox.max[axis];
-            auto midPoint = (start + end) / 2;
-            int maxTries = 10; // doing this to eliminate empty boxes
-            while (maxTries-- && (leftHalf.empty() || rightHalf.empty())) {
-                leftHalf.clear();
-                rightHalf.clear();
-
-                for (auto &face: faces) {// splitting by location instad of sorting the faces and splitting from median is way faster
-                    auto vertexPoint = getCenter(face.indices, scene)[axis];
-                    if (vertexPoint < midPoint) {
-                        leftHalf.push_back(face);
-                    } else {
-                        rightHalf.push_back(face);
-                    }
-                }
-
-                if (leftHalf.empty()) {
-                    start = midPoint;
-                    midPoint = (start + end) / 2;
-                }
-                if (rightHalf.empty()) {
-                    end = midPoint;
-                    midPoint = (start + end) / 2;
-                }
-            }
-
-            if (leftHalf.empty() || rightHalf.empty()) {
-                node->faces = faces; // is leaf node now because we couldn't split it by space
-            } else {
-                node->right = build(rightHalf, depth + 1, scene);
-                node->left = build(leftHalf, depth + 1, scene);
-            }
-
-        }
-
-        return node;
-    }
-
-
-};
-
-
-struct BVHTree {
-    BVHNode *root;
-    Scene &scene;
-
-    BVHTree(std::list<Triangle> triangles, Scene &scene) : scene(scene) {
-        root = BVHNode::build(triangles, 0, scene);
-    }
-
-};
 
 class RayTracer {
 public:
@@ -246,66 +156,58 @@ public:
 
     BVHTree triangleTree;
 
-    void rayTrace() {
-        for (auto camera: scene.cameras) {
-            auto *image = new unsigned char[camera.image_width * camera.image_height * 3];
-            int imagePtr = 0;
-            for (int j = 0; j < camera.image_height; j++) {
-                std::cout << 100 * j / (double) camera.image_height << '%' << std::endl;
-                for (int i = 0; i < camera.image_width; i++) {
-                    Ray eyeRay = generateEyeRay(camera, i, j);
+    Image rayTrace(Camera &camera) {
+        auto image = new unsigned char[camera.image_width * camera.image_height * 3];
+        int imagePtr = 0;
+        for (int j = 0; j < camera.image_height; j++) {
+            std::cout << 100 * j / (double) camera.image_height << '%' << std::endl;
+            for (int i = 0; i < camera.image_width; i++) {
+                Ray eyeRay = generateEyeRay(camera, i, j);
 
-                    auto raytracedColor = scene.background_color;
-
-                    for (auto &sphere: scene.spheres) {
-                        auto intersectionPoint = eyeRay.intersects(scene,
-                                                                   {scene.vertex_data[sphere.center_vertex_id - 1],
-                                                                    sphere.radius});
-                        if (intersectionPoint.exists) {
-                            raytracedColor.x = 255;
-                            raytracedColor.y = 0;
-                            raytracedColor.z = 0;
+                auto raytracedColor = scene.background_color;
+                // checks for both triangles and meshes
+                std::stack<BVHNode *> stack;
+                stack.push(triangleTree.root);
+                while (!stack.empty()) {
+                    auto node = stack.top();
+                    stack.pop();
+                    if (eyeRay.intersects(scene, node->box).exists) {
+                        if (node->left) {
+                            stack.push(node->left);
                         }
-                    }
-
-                    // checks for both triangles and meshes
-                    std::stack<BVHNode *> stack;
-                    stack.push(triangleTree.root);
-                    while (!stack.empty()) {
-                        auto node = stack.top();
-                        stack.pop();
-                        if (eyeRay.intersects(scene, node->box).exists) {
-                            if (node->left) {
-                                stack.push(node->left);
-                            }
-                            if (node->right) {
-                                stack.push(node->right);
-                            }
-                            if (!node->left && !node->right) {
-                                for (auto triangle: node->faces) {
-                                    auto intersectP = eyeRay.intersects(scene, triangle.indices, triangle.material_id);
-                                    if (intersectP.exists) {
-                                        raytracedColor.x = 0;
-                                        raytracedColor.y = 0;
-                                        raytracedColor.z = 255;
-                                    }
+                        if (node->right) {
+                            stack.push(node->right);
+                        }
+                        if (!node->left && !node->right) {
+                            for (auto triangle: node->faces) {
+                                auto intersectP = eyeRay.intersects(scene, triangle);
+                                if (intersectP.exists) {
+                                    raytracedColor.x = 0;
+                                    raytracedColor.y = 0;
+                                    raytracedColor.z = 255;
                                 }
                             }
-
+                            for (auto &sphere: node->spheres) {
+                                auto intersectionPoint = eyeRay.intersects(scene, sphere);
+                                if (intersectionPoint.exists) {
+                                    raytracedColor.x = 255;
+                                    raytracedColor.y = 0;
+                                    raytracedColor.z = 0;
+                                }
+                            }
                         }
-
 
                     }
 
-                    image[imagePtr++] = raytracedColor.x;
-                    image[imagePtr++] = raytracedColor.y;
-                    image[imagePtr++] = raytracedColor.z;
-                }
-            }
-            write_ppm(camera.image_name.c_str(), image, camera.image_width, camera.image_height);
-            std::cout << camera.image_name << std::endl;
 
+                }
+
+                image[imagePtr++] = raytracedColor.x;
+                image[imagePtr++] = raytracedColor.y;
+                image[imagePtr++] = raytracedColor.z;
+            }
         }
+        return image;
 
     }
 
@@ -352,11 +254,16 @@ int main(int argc, char *argv[]) {
             triangles.emplace_back(mesh.material_id, face);
         }
     }
-    RayTracer raytracer(scene, triangles);
+    RayTracer rayTracer(scene, triangles);
     auto end1 = std::chrono::high_resolution_clock::now();
 
+
     auto begin2 = std::chrono::high_resolution_clock::now();
-    raytracer.rayTrace();
+    for (auto camera: scene.cameras) {
+        auto image = rayTracer.rayTrace(camera);
+        write_ppm(camera.image_name.c_str(), image, camera.image_width, camera.image_height);
+        std::cout << camera.image_name << std::endl;
+    }
     auto end2 = std::chrono::high_resolution_clock::now();
 
     auto elapsed1 = std::chrono::duration_cast<std::chrono::nanoseconds>(end1 - begin1);

@@ -9,6 +9,7 @@
 
 namespace parser {
 
+    typedef unsigned char *Image;
 
     //Notice that all the structures are as simple as possible
     //so that you are not enforced to adopt any style or design.
@@ -44,7 +45,7 @@ namespace parser {
         }
 
         // subscript operator
-        float& operator[](int i) {
+        float &operator[](int i) {
             switch (i) {
                 case 0:
                     return x;
@@ -102,8 +103,6 @@ namespace parser {
         int v2_id;
     };
 
-    struct Sphere;
-
     struct Sphere {
         int material_id;
         int center_vertex_id;
@@ -121,7 +120,9 @@ namespace parser {
 
     struct Box {
         Vec3f min, max;
+
         Box() = default;
+
         Box(Vec3f min, Vec3f max) : min(min), max(max) {}
     };
 
@@ -157,39 +158,7 @@ namespace parser {
         //Functions
         void loadFromXml(const std::string &filepath);
 
-        template <typename T>
-        MySphere getBoundingSphere(T &faces) {
-            Vec3f min = {std::numeric_limits<float>::max(), std::numeric_limits<float>::max(),
-                         std::numeric_limits<float>::max()};
-            Vec3f max = {-std::numeric_limits<float>::max(), -std::numeric_limits<float>::max(),
-                         -std::numeric_limits<float>::max()};
-            for (auto &face: faces) {
-                for (auto &vertexId: {face.v0_id, face.v1_id, face.v2_id}) {
-                    auto &vertex = vertex_data[vertexId - 1];
-                    if (vertex.x < min.x) {
-                        min.x = vertex.x;
-                    }
-                    if (vertex.y < min.y) {
-                        min.y = vertex.y;
-                    }
-                    if (vertex.z < min.z) {
-                        min.z = vertex.z;
-                    }
-                    if (vertex.x > max.x) {
-                        max.x = vertex.x;
-                    }
-                    if (vertex.y > max.y) {
-                        max.y = vertex.y;
-                    }
-                    if (vertex.z > max.z) {
-                        max.z = vertex.z;
-                    }
-                }
-            }
-            auto center = (min + max) * 0.5;
-            auto radius = center.distance(max);
-            return {center, radius};
-        }
+
         Box getBoundingBox(std::list<Triangle> &faces) {
             Vec3f min = {std::numeric_limits<float>::max(), std::numeric_limits<float>::max(),
                          std::numeric_limits<float>::max()};
@@ -219,6 +188,27 @@ namespace parser {
                 }
             }
             return {min, max};
+        }
+
+        void extendBoundingBox(Box &box, std::list<Sphere> &sphereList) {
+            for (auto &sphere: sphereList) {
+                auto &center = vertex_data[sphere.center_vertex_id - 1];
+                for (int axis = 0; axis < 3; ++axis) {
+                    if (center[axis] - sphere.radius < box.min[axis]) {
+                        box.min[axis] = center[axis] - sphere.radius;
+                    }
+                    if (center[axis] + sphere.radius > box.max[axis]) {
+                        box.max[axis] = center[axis] + sphere.radius;
+                    }
+
+                }
+
+            }
+        }
+
+        Vec3f getCenter(Face &face) {
+            return (vertex_data[face.v0_id - 1] + vertex_data[face.v1_id - 1] + vertex_data[face.v2_id - 1]) / 3;
+
         }
     };
 }
