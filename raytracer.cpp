@@ -19,13 +19,14 @@ float det(float m[3][3]) {
 
 
 struct IntersectionPoint {
-    float t1, t2;
+    float tSmall, tLarge;
     //Vec3f normal;
     int material_id;
     bool exists;
 };
 
 class Ray {
+public:
     Vec3f getPoint(float t) { // t >= 0
         return origin + direction * t;
     }
@@ -33,10 +34,8 @@ class Ray {
     Vec3f origin;
     Vec3f direction;
 
-public:
-    Ray(Vec3f origin, Vec3f direction) : origin(origin), direction(direction) {
 
-    }
+    Ray(Vec3f origin, Vec3f direction) : origin(origin), direction(direction) {}
 
 
     IntersectionPoint intersects(Scene &scene, Sphere sphere) {
@@ -53,7 +52,7 @@ public:
         if (discriminant >= 0) {
             float t1 = (-d * (o - c) - sqrt(discriminant)) / (2 * (d * d));
             float t2 = (-d * (o - c) + sqrt(discriminant)) / (2 * (d * d));
-            if (t1 < 0 & t2 < 0) {
+            if (t1 < 0 && t2 < 0) {
                 return {-1, -1, sphere.material_id, false};
             }
             return {t1, t2, sphere.material_id, true};
@@ -145,14 +144,14 @@ public:
             gamma >= 0 &&
             t >= tMin) {
             point.exists = true;
-            point.t1 = t;
+            point.tSmall = t;
         }
         return point;
 
     }
 
-    std::vector<IntersectionPoint> getIntersectionPoints(Scene &scene, BVHTree &tree) {
-        std::vector<IntersectionPoint> result;
+    IntersectionPoint getFirstIntersection(Scene &scene, BVHTree &tree) {
+        IntersectionPoint firstIntersection = {-1, -1, -1, false};
         std::stack<BVHNode *> stack;
         stack.push(tree.root);
         while (!stack.empty()) {
@@ -169,20 +168,24 @@ public:
                     for (auto triangle: node->faces) {
                         auto intersectionPoint = intersects(scene, triangle);
                         if (intersectionPoint.exists) {
-                            result.push_back(intersectionPoint);
+                            if (intersectionPoint.tSmall < firstIntersection.tSmall || firstIntersection.tSmall == -1) {
+                                firstIntersection = intersectionPoint;
+                            }
                         }
                     }
                     for (auto &sphere: node->spheres) {
                         auto intersectionPoint = intersects(scene, sphere);
                         if (intersectionPoint.exists) {
-                            result.push_back(intersectionPoint);
+                            if (intersectionPoint.tSmall < firstIntersection.tSmall || firstIntersection.tSmall == -1) {
+                                firstIntersection = intersectionPoint;
+                            }
                         }
                     }
                 }
 
             }
         }
-        return result;
+        return firstIntersection;
     }
 };
 
@@ -203,36 +206,33 @@ public:
     }
 
 
-    Image rayTrace(Camera &camera) {
-        auto image = new unsigned char[camera.image_width * camera.image_height * 3];
-        int imagePtr = 0;
-        for (int j = 0; j < camera.image_height; j++) {
-            for (int i = 0; i < camera.image_width; i++) {
-                Ray eyeRay = generateEyeRay(camera, i, j);
-                auto raytracedColor = scene.background_color;
-
-                std::vector<IntersectionPoint> intersectionPoints = eyeRay.getIntersectionPoints(scene, tree);
-                for (auto &point: intersectionPoints) {
-                    if (point.t1 < 0) {
-                        continue;
-                    }
-                    auto &material = scene.materials[point.material_id];
-                    raytracedColor.x = material.diffuse.x * 255;
-                    raytracedColor.y = material.diffuse.y * 255;
-                    raytracedColor.z = material.diffuse.z * 255;
-                }
-
-
-                image[imagePtr++] = raytracedColor.x;
-                image[imagePtr++] = raytracedColor.y;
-                image[imagePtr++] = raytracedColor.z;
+    Image render(Camera &camera) {
+        auto image = new Pixel[camera.image_width * camera.image_height];
+        for (int rowNum = 0, imagePtr = 0; rowNum < camera.image_height; rowNum++) {
+            for (int colNum = 0; colNum < camera.image_width; colNum++) {
+                auto raytracedColor = rayTrace(camera, rowNum, colNum);
+                raytracedColor.toPixel(image[imagePtr++]);
             }
         }
         return image;
 
     }
 
-    static Ray generateEyeRay(Camera &camera, int i, int j) {
+    Vec3i rayTrace(Camera &camera, int rowNum, int colNum) {
+        Ray eyeRay = generateEyeRay(camera, rowNum, colNum);
+        auto raytracedColor = scene.background_color;
+
+        IntersectionPoint firstIntersection = eyeRay.getFirstIntersection(scene, tree);
+        if (firstIntersection.exists) {
+            auto &material = scene.materials[firstIntersection.material_id];
+            raytracedColor.x = 123;
+            raytracedColor.y = 123;
+            raytracedColor.z = 123;
+        }
+        return raytracedColor;
+    }
+
+    static Ray generateEyeRay(Camera &camera, int rowNum, int colNum) {
         auto e = camera.position;
         auto w = -camera.gaze;
         auto distance = camera.near_distance;
@@ -250,8 +250,8 @@ public:
         auto m = e + -w * distance;
         auto q = m + u * l + v * t;
 
-        float su = (i + 0.5) * (r - l) / nx;
-        float sv = (j + 0.5) * (t - b) / ny;
+        float su = (colNum + 0.5) * (r - l) / nx;
+        float sv = (rowNum + 0.5) * (t - b) / ny;
 
         auto s = q + u * su - v * sv;
 
@@ -269,21 +269,19 @@ int main(int argc, char *argv[]) {
     auto begin1 = std::chrono::high_resolution_clock::now();
     RayTracer rayTracer(scene);
     auto end1 = std::chrono::high_resolution_clock::now();
+    auto elapsed1 = std::chrono::duration_cast<std::chrono::nanoseconds>(end1 - begin1);
+    printf("Planted trees in %.3f seconds.\n", elapsed1.count() * 1e-9);
 
 
     auto begin2 = std::chrono::high_resolution_clock::now();
-    int renderCount = 10; // todo: make it 1. 10 is for performance measurement
+    int renderCount = 1; // todo: make it 1. 10 is for performance measurement
     for (int i = 0; i < renderCount; ++i) {
         for (auto camera: scene.cameras) {
-            auto image = rayTracer.rayTrace(camera);
-            write_ppm(camera.image_name.c_str(), image, camera.image_width, camera.image_height);
+            auto image = rayTracer.render(camera);
+            write_ppm(camera.image_name.c_str(), (unsigned char *)image, camera.image_width, camera.image_height);
         }
     }
-
     auto end2 = std::chrono::high_resolution_clock::now();
-
-    auto elapsed1 = std::chrono::duration_cast<std::chrono::nanoseconds>(end1 - begin1);
     auto elapsed2 = std::chrono::duration_cast<std::chrono::nanoseconds>(end2 - begin2);
-    printf("\nPlanted trees in %.3f seconds.\n", elapsed1.count() * 1e-9);
     printf("Rendered in %.3f seconds.\n", elapsed2.count() * 1e-9 / renderCount);
 }

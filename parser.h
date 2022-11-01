@@ -9,7 +9,9 @@
 
 namespace parser {
 
-    typedef unsigned char *Image;
+    typedef unsigned char Pixel[3];
+    typedef Pixel* Image;
+
 
     //Notice that all the structures are as simple as possible
     //so that you are not enforced to adopt any style or design.
@@ -67,6 +69,11 @@ namespace parser {
 
     struct Vec3i {
         int x, y, z;
+        void toPixel(Pixel& pixel) {
+            pixel[0] = x;
+            pixel[1] = y;
+            pixel[2] = z;
+        }
     };
 
     struct Vec4f {
