@@ -64,6 +64,11 @@ namespace parser {
             return Vec3f{x / f, y / f, z / f};
         }
 
+        Vec3f normalize() const {
+            float length = sqrt(x * x + y * y + z * z);
+            return Vec3f{x / length, y / length, z / length};
+        }
+
 
     };
 
@@ -73,6 +78,18 @@ namespace parser {
             pixel[0] = x;
             pixel[1] = y;
             pixel[2] = z;
+        }
+        int &operator[](int i) {
+            switch (i) {
+                case 0:
+                    return x;
+                case 1:
+                    return y;
+                case 2:
+                    return z;
+                default:
+                    return x;
+            }
         }
     };
 

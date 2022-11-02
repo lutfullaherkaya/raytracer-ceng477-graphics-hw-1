@@ -20,7 +20,7 @@ float det(float m[3][3]) {
 
 struct IntersectionPoint {
     float tSmall, tLarge;
-    //Vec3f normal;
+    Vec3f normal;
     int material_id;
     bool exists;
 };
@@ -39,6 +39,7 @@ public:
 
 
     IntersectionPoint intersects(Scene &scene, Sphere sphere) {
+        IntersectionPoint result = {-1, -1, {0,0,0}, sphere.material_id, false};
         auto c = scene.vertex_data[sphere.center_vertex_id - 1];
         auto r = sphere.radius;
         auto d = direction;
@@ -53,11 +54,15 @@ public:
             float t1 = (-d * (o - c) - sqrt(discriminant)) / (2 * (d * d));
             float t2 = (-d * (o - c) + sqrt(discriminant)) / (2 * (d * d));
             if (t1 < 0 && t2 < 0) {
-                return {-1, -1, sphere.material_id, false};
+                return result;
             }
-            return {t1, t2, sphere.material_id, true};
+            result.exists = true;
+            result.tSmall = t1;
+            result.tLarge = t2;
+            result.normal = (getPoint(t1) - c)/r;
+            return result;
         }
-        return {-1, -1, sphere.material_id, false};
+        return result;
 
     }
 
@@ -224,10 +229,30 @@ public:
 
         IntersectionPoint firstIntersection = eyeRay.getFirstIntersection(scene, tree);
         if (firstIntersection.exists) {
-            auto &material = scene.materials[firstIntersection.material_id];
-            raytracedColor.x = 123;
-            raytracedColor.y = 123;
-            raytracedColor.z = 123;
+            auto &material = scene.materials[firstIntersection.material_id-1];
+            float diffuse = 0;
+            Vec3f diffuseColor = {1, 1, 1};
+            for (auto &light: scene.point_lights) {
+                auto lightRayDirection = (eyeRay.getPoint(firstIntersection.tSmall) - light.position).normalize();
+                auto lightRay = Ray(eyeRay.getPoint(firstIntersection.tSmall), lightRayDirection);
+                auto lightIntersection = lightRay.getFirstIntersection(scene, tree);
+                if (!lightIntersection.exists) {
+                    diffuse = lightRayDirection * firstIntersection.normal;
+                    if (diffuse < 0) {
+                        diffuse = 0;
+                    }
+                    if (diffuse > 1) {
+                        diffuse = 1;
+                    }
+                    
+                }
+            }
+            for (int axis = 0; axis < 3; ++axis) {
+                float ambient = material.ambient[axis] * scene.ambient_light[axis];
+                float diffuseColor = material.diffuse[axis] * diffuse;
+                raytracedColor[axis] = diffuseColor + ambient;
+            }
+            
         }
         return raytracedColor;
     }

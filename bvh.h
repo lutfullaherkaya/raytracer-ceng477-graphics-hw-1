@@ -67,7 +67,7 @@ struct BVHNode {
                 for (auto &sphere: spheres) {// splitting by location instad of sorting the faces and splitting from median is way faster
                     auto vertexPoint = scene.vertex_data[sphere.center_vertex_id - 1][axis];
                     if (vertexPoint < midPoint) {
-                        leftSprs.push_back(sphere);
+                        leftSprs.push_back(sphere); 
                     } else {
                         rightSprs.push_back(sphere);
                     }
