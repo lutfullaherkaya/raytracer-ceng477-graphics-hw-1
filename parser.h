@@ -17,6 +17,7 @@ namespace parser {
     //so that you are not enforced to adopt any style or design.
     struct Vec3f {
         float x, y, z;
+        
 
         Vec3f operator+(const Vec3f &v) const {
             return Vec3f{x + v.x, y + v.y, z + v.z};
@@ -65,8 +66,11 @@ namespace parser {
         }
 
         Vec3f normalize() const {
-            float length = sqrt(x * x + y * y + z * z);
-            return Vec3f{x / length, y / length, z / length};
+            float vLength = length();
+            return Vec3f{x / vLength, y / vLength, z / vLength};
+        }
+        float length() const {
+            return sqrt(x * x + y * y + z * z);
         }
 
 

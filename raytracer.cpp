@@ -101,14 +101,14 @@ public:
         if (tzmax < tmax)
             tmax = tzmax;
         if (tmin < 0 && tmax < 0) {
-            return {-1, -1, false};
+            return {-1, -1, {0,0,0}, -1, false};
         }
-        return {tmin, tmax, -1, true};
+        return {tmin, tmax, {0,0,0}, -1, true};
 
     }
 
     IntersectionPoint intersects(Scene &scene, Triangle &triangle) {
-        IntersectionPoint point = {-1, -1, triangle.material_id, false};
+        IntersectionPoint point = {-1, -1, {-1,-1,-1}, triangle.material_id, false};
         auto a = scene.vertex_data[triangle.indices.v0_id - 1];
         auto b = scene.vertex_data[triangle.indices.v1_id - 1];
         auto c = scene.vertex_data[triangle.indices.v2_id - 1];
@@ -230,27 +230,32 @@ public:
         IntersectionPoint firstIntersection = eyeRay.getFirstIntersection(scene, tree);
         if (firstIntersection.exists) {
             auto &material = scene.materials[firstIntersection.material_id-1];
-            float diffuse = 0;
-            Vec3f diffuseColor = {1, 1, 1};
+            Vec3f diffuse = {0, 0, 0};
             for (auto &light: scene.point_lights) {
-                auto lightRayDirection = (eyeRay.getPoint(firstIntersection.tSmall) - light.position).normalize();
+                float cosTheta = 0;
+                auto lightRayDirection = (light.position - eyeRay.getPoint(firstIntersection.tSmall)).normalize();
+                auto lightDistance = (light.position - eyeRay.getPoint(firstIntersection.tSmall)).length();
                 auto lightRay = Ray(eyeRay.getPoint(firstIntersection.tSmall), lightRayDirection);
                 auto lightIntersection = lightRay.getFirstIntersection(scene, tree);
-                if (!lightIntersection.exists) {
-                    diffuse = lightRayDirection * firstIntersection.normal;
-                    if (diffuse < 0) {
-                        diffuse = 0;
+
+                bool lightIsObstructed = lightIntersection.exists && (lightRay.direction * lightIntersection.tSmall).length() < lightDistance;
+                if (!lightIsObstructed) {
+                    cosTheta = lightRayDirection * firstIntersection.normal.normalize();
+                    if (cosTheta < 0) {
+                        cosTheta = 0;
                     }
-                    if (diffuse > 1) {
-                        diffuse = 1;
+                    if (cosTheta > 1) {
+                        cosTheta = 1;
                     }
-                    
+                    for (int axis = 0; axis < 3; ++axis) {
+                        diffuse[axis] += material.diffuse[axis] * cosTheta * light.intensity[axis] / (lightDistance * lightDistance); 
+                        // todo: problem: bu deger 255 den buyuk geldigi icin overflow oluyor. bir sayiyla carpmak lazim burayi mesela 0.3 falan olunca duzgun geliyor sonuc
+                    }
                 }
             }
             for (int axis = 0; axis < 3; ++axis) {
                 float ambient = material.ambient[axis] * scene.ambient_light[axis];
-                float diffuseColor = material.diffuse[axis] * diffuse;
-                raytracedColor[axis] = diffuseColor + ambient;
+                raytracedColor[axis] = diffuse[axis] + ambient;
             }
             
         }
