@@ -35,7 +35,9 @@ public:
     Vec3f direction;
 
 
-    Ray(Vec3f origin, Vec3f direction) : origin(origin), direction(direction) {}
+    Ray(Vec3f origin, Vec3f direction) : origin(origin), direction(direction) {
+        direction = direction.normalize();
+    }
 
 
     IntersectionPoint intersects(Scene &scene, Sphere sphere) {
@@ -51,15 +53,16 @@ public:
         auto discriminant = B * B - 4 * A * C;
 
         if (discriminant >= 0) {
-            float t1 = (-d * (o - c) - sqrt(discriminant)) / (2 * (d * d));
-            float t2 = (-d * (o - c) + sqrt(discriminant)) / (2 * (d * d));
+            /*float t1 = (-d * (o - c) - sqrt(discriminant)) / (2 * (d * d));*/
+            float t1 = (-B - sqrt(discriminant)) / (2 * A);
+            float t2 = (-B + sqrt(discriminant)) / (2 * A);
             if (t1 < 0 && t2 < 0) {
                 return result;
             }
             result.exists = true;
             result.tSmall = t1;
             result.tLarge = t2;
-            result.normal = (getPoint(t1) - c)/r;
+            result.normal = ((getPoint(t1) - c)/r).normalize();
             return result;
         }
         return result;
@@ -240,6 +243,7 @@ public:
 
                 bool lightIsObstructed = lightIntersection.exists && (lightRay.direction * lightIntersection.tSmall).length() < lightDistance;
                 if (!lightIsObstructed) {
+                    // todo: hatayi buldum. kurenin ustunden isin yollayinca kure kendi kendine engel oluyor floating point seyinden oturu.
                     cosTheta = lightRayDirection * firstIntersection.normal.normalize();
                     if (cosTheta < 0) {
                         cosTheta = 0;
@@ -247,15 +251,23 @@ public:
                     if (cosTheta > 1) {
                         cosTheta = 1;
                     }
+
+                    std::cout << cosTheta;
                     for (int axis = 0; axis < 3; ++axis) {
                         diffuse[axis] += material.diffuse[axis] * cosTheta * light.intensity[axis] / (lightDistance * lightDistance); 
-                        // todo: problem: bu deger 255 den buyuk geldigi icin overflow oluyor. bir sayiyla carpmak lazim burayi mesela 0.3 falan olunca duzgun geliyor sonuc
                     }
+                    float ambient = material.ambient[0] * scene.ambient_light[0];
+
                 }
             }
             for (int axis = 0; axis < 3; ++axis) {
                 float ambient = material.ambient[axis] * scene.ambient_light[axis];
                 raytracedColor[axis] = diffuse[axis] + ambient;
+                if (raytracedColor[axis] > 255) {
+                    raytracedColor[axis] = 255;
+                }
+
+
             }
             
         }
