@@ -33,15 +33,17 @@ public:
 
     Vec3f origin;
     Vec3f direction;
+    Scene &scene;
+    BVHTree &tree;
 
 
-    Ray(Vec3f origin, Vec3f direction) : origin(origin), direction(direction) {
+    Ray(Vec3f origin, Vec3f direction, Scene &scene, BVHTree &tree) : origin(origin), direction(direction), scene(scene), tree(tree) {
         direction = direction.normalize();
     }
 
 
     IntersectionPoint intersects(Scene &scene, Sphere sphere) {
-        IntersectionPoint result = {-1, -1, {0,0,0}, sphere.material_id, false};
+        IntersectionPoint result = {-1, -1, {0, 0, 0}, sphere.material_id, false};
         auto c = scene.vertex_data[sphere.center_vertex_id - 1];
         auto r = sphere.radius;
         auto d = direction;
@@ -62,7 +64,7 @@ public:
             result.exists = true;
             result.tSmall = t1;
             result.tLarge = t2;
-            result.normal = ((getPoint(t1) - c)/r).normalize();
+            result.normal = ((getPoint(t1) - c) / r).normalize();
             return result;
         }
         return result;
@@ -104,14 +106,14 @@ public:
         if (tzmax < tmax)
             tmax = tzmax;
         if (tmin < 0 && tmax < 0) {
-            return {-1, -1, {0,0,0}, -1, false};
+            return {-1, -1, {0, 0, 0}, -1, false};
         }
-        return {tmin, tmax, {0,0,0}, -1, true};
+        return {tmin, tmax, {0, 0, 0}, -1, true};
 
     }
 
     IntersectionPoint intersects(Scene &scene, Triangle &triangle) {
-        IntersectionPoint point = {-1, -1, {-1,-1,-1}, triangle.material_id, false};
+        IntersectionPoint point = {-1, -1, {-1, -1, -1}, triangle.material_id, false};
         auto a = scene.vertex_data[triangle.indices.v0_id - 1];
         auto b = scene.vertex_data[triangle.indices.v1_id - 1];
         auto c = scene.vertex_data[triangle.indices.v2_id - 1];
@@ -159,42 +161,85 @@ public:
     }
 
     IntersectionPoint getFirstIntersection(Scene &scene, BVHTree &tree) {
-        IntersectionPoint firstIntersection = {-1, -1, -1, false};
-        std::stack<BVHNode *> stack;
-        stack.push(tree.root);
+        IntersectionPoint firstIntersection = {-1, -1, {-1, -1}, false};
+        std::stack<BVHNode *> stack = startTraversing();
+
         while (!stack.empty()) {
-            auto node = stack.top();
-            stack.pop();
-            if (intersects(scene, node->box).exists) {
-                if (node->left) {
-                    stack.push(node->left);
-                }
-                if (node->right) {
-                    stack.push(node->right);
-                }
-                if (!node->left && !node->right) {
-                    for (auto triangle: node->faces) {
-                        auto intersectionPoint = intersects(scene, triangle);
-                        if (intersectionPoint.exists) {
-                            if (intersectionPoint.tSmall < firstIntersection.tSmall || firstIntersection.tSmall == -1) {
-                                firstIntersection = intersectionPoint;
-                            }
-                        }
-                    }
-                    for (auto &sphere: node->spheres) {
-                        auto intersectionPoint = intersects(scene, sphere);
-                        if (intersectionPoint.exists) {
-                            if (intersectionPoint.tSmall < firstIntersection.tSmall || firstIntersection.tSmall == -1) {
-                                firstIntersection = intersectionPoint;
-                            }
+            auto node = traverse(stack);
+            if (node->isRoot()) {
+                for (auto triangle: node->triangles) {
+                    auto intersectionPoint = intersects(scene, triangle);
+                    if (intersectionPoint.exists) {
+                        if (intersectionPoint.tSmall < firstIntersection.tSmall || firstIntersection.tSmall == -1) {
+                            firstIntersection = intersectionPoint;
                         }
                     }
                 }
+                for (auto &sphere: node->spheres) {
+                    auto intersectionPoint = intersects(scene, sphere);
+                    if (intersectionPoint.exists) {
+                        if (intersectionPoint.tSmall < firstIntersection.tSmall || firstIntersection.tSmall == -1) {
+                            firstIntersection = intersectionPoint;
+                        }
+                    }
+                }
+
 
             }
         }
         return firstIntersection;
     }
+
+    IntersectionPoint getAnyIntersectionUntilT(Scene &scene, BVHTree &tree, float t) {
+        IntersectionPoint firstIntersection = {-1, -1, {-1, -1}, false};
+        std::stack<BVHNode *> stack = startTraversing();
+
+        while (!stack.empty()) {
+            auto node = traverse(stack);
+            if (node->isRoot()) {
+                for (auto triangle: node->triangles) {
+                    auto intersectionPoint = intersects(scene, triangle);
+                    if (intersectionPoint.exists) {
+                        if (intersectionPoint.tSmall < t) { // todo: maybe float error for t
+                            return intersectionPoint;
+                        }
+                    }
+                }
+                for (auto &sphere: node->spheres) {
+                    auto intersectionPoint = intersects(scene, sphere);
+                    if (intersectionPoint.exists) {
+                        if (intersectionPoint.tSmall < t) { // todo: maybe float error for t
+                            return intersectionPoint;
+                        }
+                    }
+                }
+
+
+            }
+        }
+        return firstIntersection;
+    }
+
+    std::stack<BVHNode *> startTraversing() {
+        std::stack<BVHNode *> stack;
+        stack.push(tree.root);
+        return stack;
+    }
+
+    BVHNode* traverse(std::stack<BVHNode *> &stack) {
+        auto node = stack.top();
+        stack.pop();
+        if (intersects(scene, node->box).exists) {
+            if (node->left) {
+                stack.push(node->left);
+            }
+            if (node->right) {
+                stack.push(node->right);
+            }
+        }
+        return node;
+    }
+
 };
 
 
@@ -227,21 +272,23 @@ public:
     }
 
     Vec3i rayTrace(Camera &camera, int rowNum, int colNum) {
-        Ray eyeRay = generateEyeRay(camera, rowNum, colNum);
+        Ray eyeRay = generateEyeRay(camera, rowNum, colNum, scene, tree);
         auto raytracedColor = scene.background_color;
 
         IntersectionPoint firstIntersection = eyeRay.getFirstIntersection(scene, tree);
         if (firstIntersection.exists) {
-            auto &material = scene.materials[firstIntersection.material_id-1];
+            auto &material = scene.materials[firstIntersection.material_id - 1];
             Vec3f diffuse = {0, 0, 0};
             for (auto &light: scene.point_lights) {
                 float cosTheta = 0;
-                auto lightRayDirection = (light.position - eyeRay.getPoint(firstIntersection.tSmall)).normalize();
-                auto lightDistance = (light.position - eyeRay.getPoint(firstIntersection.tSmall)).length();
-                auto lightRay = Ray(eyeRay.getPoint(firstIntersection.tSmall), lightRayDirection);
-                auto lightIntersection = lightRay.getFirstIntersection(scene, tree);
+                Vec3f intersectionPnt = eyeRay.getPoint(firstIntersection.tSmall);
+                auto lightRayDirection = (light.position - intersectionPnt).normalize();
+                auto lightDistance = (light.position - intersectionPnt).length();
+                auto lightRay = Ray(intersectionPnt, lightRayDirection, scene, tree);
+                auto lightIntersection = lightRay.getAnyIntersectionUntilT(scene, tree, lightDistance); // start + direction * t = point then t = (point - start) / direction
 
-                bool lightIsObstructed = lightIntersection.exists && (lightRay.direction * lightIntersection.tSmall).length() < lightDistance;
+                bool lightIsObstructed = lightIntersection.exists &&
+                                         (lightRay.direction * lightIntersection.tSmall).length() < lightDistance;
                 if (!lightIsObstructed) {
                     // todo: hatayi buldum. kurenin ustunden isin yollayinca kure kendi kendine engel oluyor floating point seyinden oturu.
                     cosTheta = lightRayDirection * firstIntersection.normal.normalize();
@@ -252,11 +299,10 @@ public:
                         cosTheta = 1;
                     }
 
-                    std::cout << cosTheta;
                     for (int axis = 0; axis < 3; ++axis) {
-                        diffuse[axis] += material.diffuse[axis] * cosTheta * light.intensity[axis] / (lightDistance * lightDistance); 
+                        diffuse[axis] += material.diffuse[axis] * cosTheta * light.intensity[axis] /
+                                         (lightDistance * lightDistance);
                     }
-                    float ambient = material.ambient[0] * scene.ambient_light[0];
 
                 }
             }
@@ -269,12 +315,12 @@ public:
 
 
             }
-            
+
         }
         return raytracedColor;
     }
 
-    static Ray generateEyeRay(Camera &camera, int rowNum, int colNum) {
+    static Ray generateEyeRay(Camera &camera, int rowNum, int colNum, Scene &scene, BVHTree &tree) {
         auto e = camera.position;
         auto w = -camera.gaze;
         auto distance = camera.near_distance;
@@ -297,7 +343,7 @@ public:
 
         auto s = q + u * su - v * sv;
 
-        return {e, s - e};
+        return {e, s - e, scene, tree};
     }
 
 
@@ -316,11 +362,11 @@ int main(int argc, char *argv[]) {
 
 
     auto begin2 = std::chrono::high_resolution_clock::now();
-    int renderCount = 1; // todo: make it 1. 10 is for performance measurement
+    int renderCount = 10; // todo: make it 1. 10 is for performance measurement
     for (int i = 0; i < renderCount; ++i) {
         for (auto camera: scene.cameras) {
             auto image = rayTracer.render(camera);
-            write_ppm(camera.image_name.c_str(), (unsigned char *)image, camera.image_width, camera.image_height);
+            write_ppm(camera.image_name.c_str(), (unsigned char *) image, camera.image_width, camera.image_height);
         }
     }
     auto end2 = std::chrono::high_resolution_clock::now();

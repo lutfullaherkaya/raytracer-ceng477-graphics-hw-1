@@ -21,7 +21,7 @@ struct BVHNode {
     BVHNode() = default;
 
     int depth = 0;
-    std::list<Triangle> faces; // is empty if not leaf.
+    std::list<Triangle> triangles; // is empty if not leaf.
     std::list<Sphere> spheres; // is empty if not leaf.
     Box box{};
     BVHNode *left = nullptr, *right = nullptr;
@@ -37,7 +37,7 @@ struct BVHNode {
         scene.extendBoundingBox(node->box, spheres);
 
         if (faces.size() + spheres.size() <= 1 || depth >= MAX_DEPTH) {
-            node->faces = faces; // is leaf node
+            node->triangles = faces; // is leaf node
             node->spheres = spheres;
         } else {
             std::list<Triangle> leftHalf = {};
@@ -56,7 +56,7 @@ struct BVHNode {
                 leftSprs.clear();
                 rightSprs.clear();
 
-                for (auto &face: faces) {// splitting by location instad of sorting the faces and splitting from median is way faster
+                for (auto &face: faces) {// splitting by location instad of sorting the triangles and splitting from median is way faster
                     auto vertexPoint = scene.getCenter(face.indices)[axis];
                     if (vertexPoint < midPoint) {
                         leftHalf.push_back(face);
@@ -64,10 +64,10 @@ struct BVHNode {
                         rightHalf.push_back(face);
                     }
                 }
-                for (auto &sphere: spheres) {// splitting by location instad of sorting the faces and splitting from median is way faster
+                for (auto &sphere: spheres) {// splitting by location instad of sorting the triangles and splitting from median is way faster
                     auto vertexPoint = scene.vertex_data[sphere.center_vertex_id - 1][axis];
                     if (vertexPoint < midPoint) {
-                        leftSprs.push_back(sphere); 
+                        leftSprs.push_back(sphere);
                     } else {
                         rightSprs.push_back(sphere);
                     }
@@ -84,7 +84,7 @@ struct BVHNode {
             }
 
             if ((leftHalf.empty() && leftSprs.empty()) || (rightHalf.empty() && rightSprs.empty())) {
-                node->faces = faces; // is leaf node now because we couldn't split it by space
+                node->triangles = faces; // is leaf node now because we couldn't split it by space
             } else {
                 node->right = build(rightHalf, rightSprs, depth + 1, scene);
                 node->left = build(leftHalf, leftSprs, depth + 1, scene);
@@ -95,8 +95,9 @@ struct BVHNode {
         return node;
     }
 
-
-
+    bool isRoot() {
+        return left == nullptr && right == nullptr;
+    }
 };
 
 
@@ -109,6 +110,7 @@ struct BVHTree {
     void build(std::list<Triangle> triangles) {
         root = BVHNode::build(std::move(triangles), {scene.spheres.begin(), scene.spheres.end()}, 0, scene);
     }
+
 
 
 
