@@ -84,7 +84,7 @@ public:
         if (tymin > tymax) std::swap(tymin, tymax);
 
         if ((tmin > tymax) || (tymin > tmax))
-            return {-1, -1, false};
+            return {-1, -1, {0}, -1, false};
 
         if (tymin > tmin)
             tmin = tymin;
@@ -98,7 +98,7 @@ public:
         if (tzmin > tzmax) std::swap(tzmin, tzmax);
 
         if ((tmin > tzmax) || (tzmin > tmax))
-            return {0, 0, false};
+            return {0, 0, {0}, -1, false};
 
         if (tzmin > tmin)
             tmin = tzmin;
@@ -161,7 +161,7 @@ public:
     }
 
     IntersectionPoint getFirstIntersection(Scene &scene, BVHTree &tree) {
-        IntersectionPoint firstIntersection = {-1, -1, {-1, -1}, false};
+        IntersectionPoint firstIntersection = {-1, -1, {-1, -1}, -1, false};
         std::stack<BVHNode *> stack = startTraversing();
 
         while (!stack.empty()) {
@@ -191,7 +191,7 @@ public:
     }
 
     IntersectionPoint getAnyIntersectionUntilT(Scene &scene, BVHTree &tree, float t) {
-        IntersectionPoint firstIntersection = {-1, -1, {-1, -1}, false};
+        IntersectionPoint firstIntersection = {-1, -1, {0}, -1, false};
         std::stack<BVHNode *> stack = startTraversing();
 
         while (!stack.empty()) {
@@ -362,7 +362,7 @@ int main(int argc, char *argv[]) {
 
 
     auto begin2 = std::chrono::high_resolution_clock::now();
-    int renderCount = 10; // todo: make it 1. 10 is for performance measurement
+    int renderCount = 1; // todo: make it 1. 10 is for performance measurement
     for (int i = 0; i < renderCount; ++i) {
         for (auto camera: scene.cameras) {
             auto image = rayTracer.render(camera);
