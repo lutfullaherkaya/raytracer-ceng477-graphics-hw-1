@@ -38,7 +38,8 @@ public:
     BVHTree &tree;
 
 
-    Ray(Vec3f origin, Vec3f direction, Scene &scene, BVHTree &tree) : origin(origin), direction(direction), scene(scene), tree(tree) {
+    Ray(Vec3f origin, Vec3f direction, Scene &scene, BVHTree &tree) : origin(origin), direction(direction),
+                                                                      scene(scene), tree(tree) {
         direction = direction.normalize();
     }
 
@@ -166,7 +167,7 @@ public:
 
         while (!stack.empty()) {
             auto node = traverse(stack);
-            if (node->isRoot()) {
+            if (node->isLeaf()) {
                 for (auto triangle: node->triangles) {
                     auto intersectionPoint = intersects(scene, triangle);
                     if (intersectionPoint.exists) {
@@ -196,7 +197,7 @@ public:
 
         while (!stack.empty()) {
             auto node = traverse(stack);
-            if (node->isRoot()) {
+            if (node->isLeaf()) {
                 for (auto triangle: node->triangles) {
                     auto intersectionPoint = intersects(scene, triangle);
                     if (intersectionPoint.exists) {

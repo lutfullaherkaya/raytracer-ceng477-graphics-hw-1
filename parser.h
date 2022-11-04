@@ -152,6 +152,12 @@ namespace parser {
         Box() = default;
 
         Box(Vec3f min, Vec3f max) : min(min), max(max) {}
+
+        bool contains(Vec3f point) {
+            return point.x >= min.x && point.x <= max.x &&
+                   point.y >= min.y && point.y <= max.y &&
+                   point.z >= min.z && point.z <= max.z;
+        }
     };
 
     struct Mesh {

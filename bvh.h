@@ -16,7 +16,21 @@
 
 using namespace parser;
 
-
+/**
+ * How I implemented this? - Lütfullah Erkaya
+ * At first I tried implementing a KD tree but it didn't work. I was dividing the space with points and not triangles.
+ * Then I thought dividing the triangles, not points was simpler. Only thing I had to do was dividing the triangles list
+ * into two and then recursively do the same thing for the two lists. I also had to calculate the bounding box of the
+ * triangles list. Then the tree was formed. I thought it was still a KD tree but it was BVH.
+ *
+ * For dividing in half, at first i sorted the list and divided by median but it was very slow, it was taking 4 seconds
+ * to build the tree for horse_and_mug. Then I read in course book that it was faster to not sort but just partition using
+ * the middle point of the parent box.
+ * Time it took to plant went from 4 seconds to 0,08 seconds.
+ *
+ * Then I did the divide by widest axis and first box intersection traversal, the rendering became much faster.
+ *
+ */
 struct BVHNode {
     BVHNode() = default;
 
@@ -102,7 +116,7 @@ struct BVHNode {
         return node;
     }
 
-    bool isRoot() {
+    bool isLeaf() {
         return left == nullptr && right == nullptr;
     }
 };
