@@ -58,7 +58,7 @@ public:
         if (discriminant >= 0) {
             float t1 = (-B - sqrt(discriminant)) / (2 * A);
             float t2 = (-B + sqrt(discriminant)) / (2 * A);
-            if (t1 < T_MIN_EPSILON && t2 < T_MIN_EPSILON) {
+            if (t1 < 0 && t2 < 0) {
                 return result;
             }
             result.exists = true;
@@ -146,7 +146,7 @@ public:
         float t = det(tMatrix) / detA;
 
         float alpha = 1 - beta - gamma;
-        float tMin = T_MIN_EPSILON;
+        float tMin = 0;
 
         if (alpha >= 0 &&
             beta >= 0 &&
@@ -283,16 +283,16 @@ public:
             Vec3f diffuse = {0, 0, 0};
             Vec3f specular = {0, 0, 0};
             auto normal = firstIntersection.normal.normalize();
+            Vec3f intersectionPnt = ray.getPoint(firstIntersection.tSmall) + normal * scene.shadow_ray_epsilon;
             for (auto &light: scene.point_lights) {
                 float cosTheta = 0;
-                Vec3f intersectionPnt = ray.getPoint(firstIntersection.tSmall);
+
                 auto lightRayDirection = (light.position - intersectionPnt).normalize();
                 auto lightDistance = (light.position - intersectionPnt).length();
                 auto lightRay = Ray(intersectionPnt, lightRayDirection, scene, tree);
                 auto lightIntersection = lightRay.getAnyIntersectionUntilT(scene, tree, lightDistance); // start + direction * t = point then t = (point - start) / direction
 
                 if (!lightIntersection.exists) {
-                    // todo: hatayi buldum. kurenin ustunden isin yollayinca kure kendi kendine engel oluyor floating point seyinden oturu.
                     cosTheta = lightRayDirection * normal;
                     if (cosTheta < 0) {
                         cosTheta = 0;
@@ -320,7 +320,7 @@ public:
             }
             if (material.is_mirror) {
                 auto reflectionCosTheta = -ray.direction * normal;
-                Ray reflectionRay(ray.getPoint(firstIntersection.tSmall),
+                Ray reflectionRay(intersectionPnt,
                                   ray.direction + normal * 2 * reflectionCosTheta, scene, tree);
                 auto reflectedColor = rayTrace(reflectionRay, depth + 1);
                 for (int axis = 0; axis < 3; ++axis) {
