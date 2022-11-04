@@ -21,6 +21,7 @@ struct BVHNode {
     BVHNode() = default;
 
     int depth = 0;
+    int axis = 0;
     std::list<Triangle> triangles; // is empty if not leaf.
     std::list<Sphere> spheres; // is empty if not leaf.
     Box box{};
@@ -45,9 +46,15 @@ struct BVHNode {
             std::list<Sphere> leftSprs = {};
             std::list<Sphere> rightSprs = {};
 
-            int axis = depth % 3;
+            int widestAxis = 0;
+            for (int axis = 0; axis < 3; ++axis) {
+                if (node->box.max[axis] - node->box.min[axis] > node->box.max[widestAxis] - node->box.min[widestAxis]) {
+                    widestAxis = axis;
+                }
+            }
+            node->axis = widestAxis;
             Box currentBox = node->box;
-            auto start = currentBox.min[axis], end = currentBox.max[axis];
+            auto start = currentBox.min[widestAxis], end = currentBox.max[widestAxis];
             auto midPoint = (start + end) / 2;
             int maxTries = 10; // doing this to eliminate empty boxes
             while (maxTries-- && ((leftHalf.empty() && leftSprs.empty()) || (rightHalf.empty() && rightSprs.empty()))) {
@@ -57,7 +64,7 @@ struct BVHNode {
                 rightSprs.clear();
 
                 for (auto &face: faces) {// splitting by location instad of sorting the triangles and splitting from median is way faster
-                    auto vertexPoint = scene.getCenter(face.indices)[axis];
+                    auto vertexPoint = scene.getCenter(face.indices)[widestAxis];
                     if (vertexPoint < midPoint) {
                         leftHalf.push_back(face);
                     } else {
@@ -65,7 +72,7 @@ struct BVHNode {
                     }
                 }
                 for (auto &sphere: spheres) {// splitting by location instad of sorting the triangles and splitting from median is way faster
-                    auto vertexPoint = scene.vertex_data[sphere.center_vertex_id - 1][axis];
+                    auto vertexPoint = scene.vertex_data[sphere.center_vertex_id - 1][widestAxis];
                     if (vertexPoint < midPoint) {
                         leftSprs.push_back(sphere);
                     } else {
