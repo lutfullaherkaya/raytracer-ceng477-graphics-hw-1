@@ -8,6 +8,7 @@
 #include <list>
 #include <stack>
 #include <utility>
+#include <thread>
 
 using namespace parser;
 
@@ -25,6 +26,10 @@ struct IntersectionPoint {
     int material_id;
     bool exists;
 };
+
+bool floatEquals(float a, float b) {
+    return fabs(a - b) < 0.001f;
+}
 
 class Ray {
 public:
@@ -71,6 +76,7 @@ public:
         return result;
 
     }
+
     // source: book
     IntersectionPoint intersects(Scene &scene, Box box) {
         float tmin = (box.min.x - origin.x) / direction.x;
@@ -155,7 +161,7 @@ public:
             t >= tMin) {
             point.exists = true;
             point.tSmall = t;
-            point.normal = (b-a).crossProduct(c-a).normalize();
+            point.normal = (b - a).crossProduct(c - a).normalize();
         }
         return point;
 
@@ -173,6 +179,7 @@ public:
                     if (intersectionPoint.exists) {
                         if (intersectionPoint.tSmall < firstIntersection.tSmall || firstIntersection.tSmall == -1) {
                             firstIntersection = intersectionPoint;
+
                         }
                     }
                 }
@@ -227,16 +234,32 @@ public:
         return stack;
     }
 
-    BVHNode* traverse(std::stack<BVHNode *> &stack) {
+    BVHNode *traverse(std::stack<BVHNode *> &stack) {
         auto node = stack.top();
         stack.pop();
         if (intersects(scene, node->box).exists) {
-            if (node->left) {
-                stack.push(node->left);
+            if (!node->isLeaf()) {
+                if (node->left->box.contains(origin)) {
+                    stack.push(node->right);
+                    stack.push(node->left);
+                } else if (node->right->box.contains(origin)) {
+                    stack.push(node->left);
+                    stack.push(node->right);
+                } else {
+
+                    if (direction[node->axis] > 0) {
+                        stack.push(node->right);
+                        stack.push(node->left);
+                    } else {
+                        stack.push(node->left);
+                        stack.push(node->right);
+
+                    }
+                }
+
             }
-            if (node->right) {
-                stack.push(node->right);
-            }
+
+
         }
         return node;
     }
@@ -248,6 +271,8 @@ class RayTracer {
 public:
     parser::Scene scene;
     BVHTree tree;
+    Camera *currentCamera;
+    Image currentImage;
 
     explicit RayTracer(parser::Scene &scene) : scene(scene), tree(scene) {
         std::list<Triangle> triangles(scene.triangles.begin(), scene.triangles.end());
@@ -259,16 +284,35 @@ public:
         tree.build(triangles);
     }
 
+    void renderRowsWithModulo(int threadNumber, int totalThreads) {
+        for (int rowNum = threadNumber; rowNum < currentCamera->image_height; rowNum += totalThreads) {
+            for (int colNum = 0; colNum < currentCamera->image_width; colNum++) {
+                Ray eyeRay = generateEyeRay(*currentCamera, rowNum, colNum, scene, tree);
+                auto raytracedColor = rayTrace(eyeRay);
+                raytracedColor.toPixel(currentImage[currentCamera->image_width * rowNum + colNum]);
+            }
+        }
+    }
 
     Image render(Camera &camera) {
         auto image = new Pixel[camera.image_width * camera.image_height];
-        for (int rowNum = 0, imagePtr = 0; rowNum < camera.image_height; rowNum++) {
-            for (int colNum = 0; colNum < camera.image_width; colNum++) {
-                Ray eyeRay = generateEyeRay(camera, rowNum, colNum, scene, tree);
-                auto raytracedColor = rayTrace(eyeRay);
-                raytracedColor.toPixel(image[imagePtr++]);
-            }
+        currentCamera = &camera;
+        currentImage = image;
+        auto processor_count = std::thread::hardware_concurrency();
+        if (processor_count == 0) {
+            processor_count = 8;
         }
+        std::vector<std::thread> threads;
+        threads.reserve(processor_count);
+        std::cout << "Rendering with " << processor_count << " threads (cores)..." << std::endl;
+        for (int i = 0; i < processor_count; i++) {
+            threads.emplace_back(&RayTracer::renderRowsWithModulo, this, i, processor_count);
+        }
+        for (auto &thread: threads) {
+            thread.join();
+        }
+
+
         return image;
 
     }
@@ -291,7 +335,8 @@ public:
                 auto lightRayDirection = (light.position - intersectionPnt).normalize();
                 auto lightDistance = (light.position - intersectionPnt).length();
                 auto lightRay = Ray(intersectionPnt, lightRayDirection, scene, tree);
-                auto lightIntersection = lightRay.getAnyIntersectionUntilT(scene, tree, lightDistance); // start + direction * t = point then t = (point - start) / direction
+                auto lightIntersection = lightRay.getAnyIntersectionUntilT(scene, tree,
+                                                                           lightDistance); // start + direction * t = point then t = (point - start) / direction
 
                 if (!lightIntersection.exists) {
                     cosTheta = lightRayDirection * normal;
@@ -306,7 +351,8 @@ public:
                         auto receivedIrradiance = light.intensity[axis] / (lightDistance * lightDistance);
                         diffuse[axis] += material.diffuse[axis] * cosTheta * receivedIrradiance;
 
-                        float theta = acos((lightRayDirection * normal) / (lightRayDirection.length() * normal.length()));
+                        float theta = acos(
+                                (lightRayDirection * normal) / (lightRayDirection.length() * normal.length()));
                         theta = theta * 180 / 3.14159265358979323846;
                         if (theta < 90 && theta > 0) {
                             auto h = (lightRay.direction + -ray.direction).normalize();

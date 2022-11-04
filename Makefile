@@ -3,8 +3,8 @@ SOURCE	= parser.cpp ppm.cpp raytracer.cpp tinyxml2.cpp
 HEADER	= parser.h ppm.h tinyxml2.h bvh.h
 OUT	= raytracer
 CC	 = g++
-FLAGS	 = -g -c -Wall  -O3 # todo: o3 ekle
-LFLAGS	 = 
+FLAGS	 = -g -c -Wall -O3 # todo: o3 ekle
+LFLAGS	 = -lpthread
 
 all: $(OBJS)
 	$(CC) -g $(OBJS) -o $(OUT) $(LFLAGS)
