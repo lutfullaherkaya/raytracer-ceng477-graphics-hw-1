@@ -319,7 +319,7 @@ public:
 
     Vec3i rayTrace(Ray &ray, int depth = 0) {
         Vec3i rayTracedColor = {0, 0, 0};
-        if (depth >= ray.scene.max_recursion_depth) {
+        if (depth > ray.scene.max_recursion_depth) {
             return rayTracedColor;
         }
         IntersectionPoint firstIntersection = ray.getFirstIntersection(scene, tree);
@@ -338,7 +338,7 @@ public:
                 auto lightIntersection = lightRay.getAnyIntersectionUntilT(scene, tree,
                                                                            lightDistance); // start + direction * t = point then t = (point - start) / direction
 
-                if (!lightIntersection.exists) {
+                if (!lightIntersection.exists ) {
                     cosTheta = lightRayDirection * normal;
                     if (cosTheta < 0) {
                         cosTheta = 0;
@@ -365,27 +365,33 @@ public:
 
                 }
             }
-            if (material.is_mirror) {
+            for (int axis = 0; axis < 3; ++axis) {
+                float ambient = material.ambient[axis] * scene.ambient_light[axis];
+                rayTracedColor[axis] += diffuse[axis] + ambient + specular[axis];
+
+
+
+
+            }
+            if (material.is_mirror && (rayTracedColor.x < 255 || rayTracedColor.y < 255 || rayTracedColor.z < 255)) {
                 auto reflectionCosTheta = -ray.direction * normal;
                 Ray reflectionRay(intersectionPnt,
                                   ray.direction + normal * 2 * reflectionCosTheta, scene, tree);
                 auto reflectedColor = rayTrace(reflectionRay, depth + 1);
                 for (int axis = 0; axis < 3; ++axis) {
                     rayTracedColor[axis] += reflectedColor[axis] * material.mirror[axis];
+                    if (rayTracedColor[axis] > 255) {
+                        rayTracedColor[axis] = 255;
+                    }
                 }
 
             }
-
             for (int axis = 0; axis < 3; ++axis) {
-                float ambient = material.ambient[axis] * scene.ambient_light[axis];
-                rayTracedColor[axis] += diffuse[axis] + ambient + specular[axis];
-
                 if (rayTracedColor[axis] > 255) {
                     rayTracedColor[axis] = 255;
                 }
-
-
             }
+
 
         } else {
             if (depth > 0) {
