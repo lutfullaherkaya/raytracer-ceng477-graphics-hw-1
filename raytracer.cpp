@@ -42,19 +42,23 @@ public:
         return origin + direction * t;
     }
 
-    Vec3f origin;
+    const Vec3f origin;
     Vec3f direction;
+    const Vec3f oneOverDirection; // multiplication is faster than division so we cache this.
     Scene &scene;
     BVHTree &tree;
 
 
     Ray(Vec3f origin, Vec3f direction, Scene &scene, BVHTree &tree) : origin(origin), direction(direction),
+                                                                      oneOverDirection{1 / direction.x, 1 / direction.y,
+                                                                                       1 / direction.z},
                                                                       scene(scene), tree(tree) {
         direction = direction.normalize();
+
     }
 
 
-    IntersectionPoint intersectsS(Scene &scene, Sphere sphere) {
+    IntersectionPoint intersects(Sphere sphere) {
         IntersectionPoint result = {-1, -1, {0, 0, 0}, sphere.material_id, false};
         auto c = scene.vertex_data[sphere.center_vertex_id - 1];
         auto r = sphere.radius;
@@ -82,44 +86,28 @@ public:
 
     }
 
-    // source: book
-    IntersectionPoint intersectsB(Scene &scene, Box box) {
-        float tmin = (box.min.x - origin.x) / direction.x;
-        float tmax = (box.max.x - origin.x) / direction.x;
+    // source: book. also taking advantage of floating point arithmetic,
+    // when a direction component is 0, result is intinity but it does not affect the result. thus we don't need branches
+    bool intersects(Box box) {
+        float tx1 = (box.min.x - origin.x) * oneOverDirection.x;
+        float tx2 = (box.max.x - origin.x) * oneOverDirection.x;
 
-        if (tmin > tmax) std::swap(tmin, tmax);
+        float tmin = std::min(tx1, tx2);
+        float tmax = std::max(tx1, tx2);
 
-        float tymin = (box.min.y - origin.y) / direction.y;
-        float tymax = (box.max.y - origin.y) / direction.y;
+        float ty1 = (box.min.y - origin.y) * oneOverDirection.y;
+        float ty2 = (box.max.y - origin.y) * oneOverDirection.y;
 
-        if (tymin > tymax) std::swap(tymin, tymax);
+        tmin = std::max(tmin, std::min(ty1, ty2));
+        tmax = std::min(tmax, std::max(ty1, ty2));
 
-        if ((tmin > tymax) || (tymin > tmax))
-            return {-1, -1, {0}, -1, false};
+        float tz1 = (box.min.z - origin.z) * oneOverDirection.z;
+        float tz2 = (box.max.z - origin.z) * oneOverDirection.z;
 
-        if (tymin > tmin)
-            tmin = tymin;
+        tmin = std::max(tmin, std::min(tz1, tz2));
+        tmax = std::min(tmax, std::max(tz1, tz2));
 
-        if (tymax < tmax)
-            tmax = tymax;
-
-        float tzmin = (box.min.z - origin.z) / direction.z;
-        float tzmax = (box.max.z - origin.z) / direction.z;
-
-        if (tzmin > tzmax) std::swap(tzmin, tzmax);
-
-        if ((tmin > tzmax) || (tzmin > tmax))
-            return {0, 0, {0}, -1, false};
-
-        if (tzmin > tmin)
-            tmin = tzmin;
-
-        if (tzmax < tmax)
-            tmax = tzmax;
-        if (tmin < 0 && tmax < 0) {
-            return {-1, -1, {0, 0, 0}, -1, false};
-        }
-        return {tmin, tmax, {0, 0, 0}, -1, true};
+        return tmax >= std::max(0.0f, tmin);
 
     }
 
@@ -189,7 +177,7 @@ public:
                     }
                 }
                 for (auto &sphere: node->spheres) {
-                    auto intersectionPoint = intersectsS(scene, sphere);
+                    auto intersectionPoint = intersects(sphere);
                     if (intersectionPoint.exists) {
                         if (intersectionPoint.tSmall < firstIntersection.tSmall || firstIntersection.tSmall == -1) {
                             firstIntersection = intersectionPoint;
@@ -219,7 +207,7 @@ public:
                     }
                 }
                 for (auto &sphere: node->spheres) {
-                    auto intersectionPoint = intersectsS(scene, sphere);
+                    auto intersectionPoint = intersects(sphere);
                     if (intersectionPoint.exists) {
                         if (intersectionPoint.tSmall < t) { // todo: maybe float error for t
                             return intersectionPoint;
@@ -242,7 +230,7 @@ public:
     BVHNode *traverse(std::stack<BVHNode *> &stack) {
         auto node = stack.top();
         stack.pop();
-        if (intersectsB(scene, node->box).exists) {
+        if (intersects(node->box)) {
             if (!node->isLeaf()) {
                 if (node->left->box.contains(origin)) {
                     stack.push(node->right);
@@ -403,7 +391,8 @@ public:
                     }
 
                     if (!rayTracedColor.allGreaterEqualTo(255)) {
-                        auto diffuse = (material.diffuse * clampFloat(cosTheta, 0, 1)).dotWithoutSum(receivedIrradiance);
+                        auto diffuse = (material.diffuse * clampFloat(cosTheta, 0, 1)).dotWithoutSum(
+                                receivedIrradiance);
                         rayTracedColor += diffuse;
                     }
 
@@ -451,7 +440,7 @@ int main(int argc, char *argv[]) {
 
 
     auto begin2 = std::chrono::high_resolution_clock::now();
-    int renderCount = 1; // todo: make it 1. 10 is for performance measurement
+    int renderCount = 10; // todo: make it 1. 10 is for performance measurement
     for (int i = 0; i < renderCount; ++i) {
         for (auto camera: scene.cameras) {
             auto image = rayTracer.render(camera);
