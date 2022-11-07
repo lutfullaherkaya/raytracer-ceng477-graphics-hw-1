@@ -166,7 +166,7 @@ public:
 
         while (!stack.empty()) {
             auto node = traverse(stack);
-            if (node->isLeaf()) {
+            if (node && node->isLeaf()) {
                 for (auto triangle: node->triangles) {
                     auto intersectionPoint = intersects(scene, triangle);
                     if (intersectionPoint.exists) {
@@ -197,7 +197,7 @@ public:
 
         while (!stack.empty()) {
             auto node = traverse(stack);
-            if (node->isLeaf()) {
+            if (node && node->isLeaf()) {
                 for (auto triangle: node->triangles) {
                     auto intersectionPoint = intersects(scene, triangle);
                     if (intersectionPoint.exists) {
@@ -214,8 +214,6 @@ public:
                         }
                     }
                 }
-
-
             }
         }
         return firstIntersection;
@@ -232,29 +230,23 @@ public:
         stack.pop();
         if (intersects(node->box)) {
             if (!node->isLeaf()) {
-                if (node->left->box.contains(origin)) {
-                    stack.push(node->right);
-                    stack.push(node->left);
-                } else if (node->right->box.contains(origin)) {
-                    stack.push(node->left);
-                    stack.push(node->right);
-                } else {
-
-                    if (direction[node->axis] > 0) {
-                        stack.push(node->right);
-                        stack.push(node->left);
-                    } else {
-                        stack.push(node->left);
-                        stack.push(node->right);
-
-                    }
-                }
-
+                stack.push(node->right);
+                stack.push(node->left);
             }
-
-
         }
         return node;
+    }
+    BVHNode *traverseForFirstIntersection(std::stack<BVHNode *> &stack) {
+        auto node = stack.top();
+        stack.pop();
+        if (intersects(node->box)) {
+            if (!node->isLeaf()) {
+                stack.push(node->right);
+                stack.push(node->left);
+            }
+            return node;
+        }
+        return nullptr;
     }
 
 };
