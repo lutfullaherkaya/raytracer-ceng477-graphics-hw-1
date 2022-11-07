@@ -217,7 +217,7 @@ public:
             stack.pop();
             auto intersection = intersects(node->box);
 
-            if (intersection.exists && intersection.tSmall < tMax) {
+            if (intersection.exists && intersection.tSmall <= tMax) {
                 if (!node->isLeaf()) {
                     if (direction[node->axis] > 0) {
                         stack.push(node->right);
@@ -413,7 +413,7 @@ public:
         std::vector<std::thread> threads;
         threads.reserve(processor_count);
         std::cout << "Rendering with " << processor_count << " threads (cores)..." << std::endl;
-        for (int i = 0; i < processor_count; i++) {
+        for (unsigned int i = 0; i < processor_count; i++) {
             threads.emplace_back(&RayTracer::renderRowsWithModulo, this, i, processor_count);
         }
         for (auto &thread: threads) {
