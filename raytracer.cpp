@@ -18,6 +18,7 @@ float det(float m[3][3]) {
            m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
 }
 
+
 #define T_MIN_EPSILON 0.001f
 
 struct IntersectionPoint {
@@ -161,7 +162,7 @@ public:
             t >= tMin) {
             point.exists = true;
             point.tSmall = t;
-            point.normal = (b - a).crossProduct(c - a).normalize();
+            point.normal = ((b - a).crossProduct(c - a)).normalize();
         }
         return point;
 
@@ -266,6 +267,48 @@ public:
 
 };
 
+struct EyeRayGenerator {
+    Scene &scene;
+    BVHTree &tree;
+    Vec3f q, u, v, e;
+    float suMultiplier, svMultiplier;
+
+    EyeRayGenerator(Scene &scene, BVHTree &tree) : scene(scene), tree(tree) {}
+
+    void init(Camera *camera) {
+        e = camera->position;
+        auto w = -camera->gaze;
+        auto distance = camera->near_distance;
+
+        auto l = camera->near_plane.x;
+        auto r = camera->near_plane.y;
+        auto b = camera->near_plane.z;
+        auto t = camera->near_plane.w;
+
+        v = camera->up;
+        u = v.crossProduct(w);
+        auto nx = camera->image_width;
+        auto ny = camera->image_height;
+
+        auto m = e + -w * distance;
+        q = m + u * l + v * t;
+
+        suMultiplier = (r - l) / (float) nx;
+        svMultiplier = (t - b) / (float) ny;
+
+
+    }
+
+    // copy assignment
+
+
+    Ray generate(int rowNum, int colNum) {
+        float su = (colNum + 0.5) * suMultiplier;
+        float sv = (rowNum + 0.5) * svMultiplier;
+        auto s = q + u * su - v * sv;
+        return {e, s - e, scene, tree};
+    }
+};
 
 class RayTracer {
 public:
@@ -273,8 +316,9 @@ public:
     BVHTree tree;
     Camera *currentCamera;
     Image currentImage;
+    EyeRayGenerator eyeRayGenerator;
 
-    explicit RayTracer(parser::Scene &scene) : scene(scene), tree(scene) {
+    explicit RayTracer(parser::Scene &scene) : scene(scene), tree(scene), eyeRayGenerator(scene, tree) {
         std::list<Triangle> triangles(scene.triangles.begin(), scene.triangles.end());
         for (auto &mesh: scene.meshes) {
             for (auto &face: mesh.faces) {
@@ -287,7 +331,7 @@ public:
     void renderRowsWithModulo(int threadNumber, int totalThreads) {
         for (int rowNum = threadNumber; rowNum < currentCamera->image_height; rowNum += totalThreads) {
             for (int colNum = 0; colNum < currentCamera->image_width; colNum++) {
-                Ray eyeRay = generateEyeRay(*currentCamera, rowNum, colNum, scene, tree);
+                Ray eyeRay = eyeRayGenerator.generate(rowNum, colNum);
                 auto raytracedColor = rayTrace(eyeRay);
                 raytracedColor.toPixel(currentImage[currentCamera->image_width * rowNum + colNum]);
             }
@@ -298,6 +342,7 @@ public:
         auto image = new Pixel[camera.image_width * camera.image_height];
         currentCamera = &camera;
         currentImage = image;
+        eyeRayGenerator.init(currentCamera);
         auto processor_count = std::thread::hardware_concurrency();
         if (processor_count == 0) {
             processor_count = 8;
@@ -322,74 +367,55 @@ public:
         if (depth > ray.scene.max_recursion_depth) {
             return rayTracedColor;
         }
-        IntersectionPoint firstIntersection = ray.getFirstIntersection(scene, tree);
-        if (firstIntersection.exists) {
-            auto &material = scene.materials[firstIntersection.material_id - 1];
-            Vec3f diffuse = {0, 0, 0};
-            Vec3f specular = {0, 0, 0};
-            auto normal = firstIntersection.normal.normalize();
-            Vec3f intersectionPnt = ray.getPoint(firstIntersection.tSmall) + normal * scene.shadow_ray_epsilon;
+        IntersectionPoint intersection = ray.getFirstIntersection(scene, tree);
+        if (intersection.exists) {
+            auto &material = scene.materials[intersection.material_id - 1];
+
+            auto ambient = material.ambient.dotWithoutSum(scene.ambient_light);
+            rayTracedColor += ambient;
+
+            Vec3f intersectionPnt = ray.getPoint(intersection.tSmall) + intersection.normal * scene.shadow_ray_epsilon;
+
             for (auto &light: scene.point_lights) {
-                float cosTheta = 0;
-
-                auto lightRayDirection = (light.position - intersectionPnt).normalize();
+                if (rayTracedColor.allGreaterEqualTo(255)) {
+                    break;
+                }
                 auto lightDistance = (light.position - intersectionPnt).length();
+                auto lightRayDirection = (light.position - intersectionPnt).normalize();
                 auto lightRay = Ray(intersectionPnt, lightRayDirection, scene, tree);
-                auto lightIntersection = lightRay.getAnyIntersectionUntilT(scene, tree,
-                                                                           lightDistance); // start + direction * t = point then t = (point - start) / direction
+                auto lightRayIntersection = lightRay.getAnyIntersectionUntilT(scene, tree, lightDistance);
 
-                if (!lightIntersection.exists ) {
-                    cosTheta = lightRayDirection * normal;
-                    if (cosTheta < 0) {
-                        cosTheta = 0;
-                    }
-                    if (cosTheta > 1) {
-                        cosTheta = 1;
-                    }
+                if (!lightRayIntersection.exists && !rayTracedColor.allGreaterEqualTo(255)) {
+                    float cosTheta = lightRayDirection * intersection.normal;
+                    auto receivedIrradiance = light.intensity / (lightDistance * lightDistance);
 
-                    for (int axis = 0; axis < 3; ++axis) {
-                        auto receivedIrradiance = light.intensity[axis] / (lightDistance * lightDistance);
-                        diffuse[axis] += material.diffuse[axis] * cosTheta * receivedIrradiance;
 
-                        float theta = acos(
-                                (lightRayDirection * normal) / (lightRayDirection.length() * normal.length()));
-                        theta = theta * 180 / 3.14159265358979323846;
-                        if (theta < 90 && theta > 0) {
-                            auto h = (lightRay.direction + -ray.direction).normalize();
-                            float cosaToTheP = pow(std::max(0.0f, normal * h), material.phong_exponent);
-                            specular[axis] += material.specular[axis] * cosaToTheP * receivedIrradiance;
-                        }
-
+                    float theta = acos(cosTheta) * 180 / 3.14159265358;
+                    if (0 < theta && theta < 90) {
+                        auto h = (lightRay.direction + -ray.direction).normalize();
+                        float cosaToTheP = pow(std::max(0.0f, intersection.normal * h), material.phong_exponent);
+                        auto specular = (material.specular * cosaToTheP).dotWithoutSum(receivedIrradiance);
+                        rayTracedColor += specular;
                     }
 
+                    if (!rayTracedColor.allGreaterEqualTo(255)) {
+                        auto diffuse = (material.diffuse * myClamp(cosTheta, 0, 1)).dotWithoutSum(receivedIrradiance);
+                        rayTracedColor += diffuse;
+                    }
 
                 }
-            }
-            for (int axis = 0; axis < 3; ++axis) {
-                float ambient = material.ambient[axis] * scene.ambient_light[axis];
-                rayTracedColor[axis] += diffuse[axis] + ambient + specular[axis];
-
-
-
 
             }
-            if (material.is_mirror && (rayTracedColor.x < 255 || rayTracedColor.y < 255 || rayTracedColor.z < 255)) {
-                auto reflectionCosTheta = -ray.direction * normal;
+
+
+            if (material.is_mirror && !rayTracedColor.allGreaterEqualTo(255)) {
+                auto reflectionCosTheta = -ray.direction * intersection.normal;
                 Ray reflectionRay(intersectionPnt,
-                                  ray.direction + normal * 2 * reflectionCosTheta, scene, tree);
+                                  ray.direction + intersection.normal * 2 * reflectionCosTheta, scene, tree);
                 auto reflectedColor = rayTrace(reflectionRay, depth + 1);
-                for (int axis = 0; axis < 3; ++axis) {
-                    rayTracedColor[axis] += reflectedColor[axis] * material.mirror[axis];
-                    if (rayTracedColor[axis] > 255) {
-                        rayTracedColor[axis] = 255;
-                    }
-                }
 
-            }
-            for (int axis = 0; axis < 3; ++axis) {
-                if (rayTracedColor[axis] > 255) {
-                    rayTracedColor[axis] = 255;
-                }
+                rayTracedColor = rayTracedColor + reflectedColor.dotWithoutSum(material.mirror);
+
             }
 
 
@@ -401,33 +427,8 @@ public:
             }
 
         }
+        rayTracedColor.clamp(0, 255);
         return rayTracedColor;
-    }
-
-    static Ray generateEyeRay(Camera &camera, int rowNum, int colNum, Scene &scene, BVHTree &tree) {
-        auto e = camera.position;
-        auto w = -camera.gaze;
-        auto distance = camera.near_distance;
-
-        auto l = camera.near_plane.x;
-        auto r = camera.near_plane.y;
-        auto b = camera.near_plane.z;
-        auto t = camera.near_plane.w;
-
-        auto v = camera.up;
-        auto u = v.crossProduct(w);
-        auto nx = camera.image_width;
-        auto ny = camera.image_height;
-
-        auto m = e + -w * distance;
-        auto q = m + u * l + v * t;
-
-        float su = (colNum + 0.5) * (r - l) / nx;
-        float sv = (rowNum + 0.5) * (t - b) / ny;
-
-        auto s = q + u * su - v * sv;
-
-        return {e, s - e, scene, tree};
     }
 
 
@@ -446,7 +447,7 @@ int main(int argc, char *argv[]) {
 
 
     auto begin2 = std::chrono::high_resolution_clock::now();
-    int renderCount = 1; // todo: make it 1. 10 is for performance measurement
+    int renderCount = 10; // todo: make it 1. 10 is for performance measurement
     for (int i = 0; i < renderCount; ++i) {
         for (auto camera: scene.cameras) {
             auto image = rayTracer.render(camera);

@@ -10,14 +10,17 @@
 namespace parser {
 
     typedef unsigned char Pixel[3];
-    typedef Pixel* Image;
+    typedef Pixel *Image;
 
+    float myClamp(float x, float min, float max) {
+        return std::max(min, std::min(max, x));
+    }
 
     //Notice that all the structures are as simple as possible
     //so that you are not enforced to adopt any style or design.
     struct Vec3f {
         float x, y, z;
-        
+
 
         Vec3f operator+(const Vec3f &v) const {
             return Vec3f{x + v.x, y + v.y, z + v.z};
@@ -41,6 +44,10 @@ namespace parser {
 
         Vec3f crossProduct(const Vec3f &v) const {
             return Vec3f{y * v.z - z * v.y, z * v.x - x * v.z, x * v.y - y * v.x};
+        }
+
+        Vec3f dotWithoutSum(const Vec3f &v) const {
+            return Vec3f{x * v.x, y * v.y, z * v.z};
         }
 
         float distance(const Vec3f &v) const {
@@ -69,8 +76,15 @@ namespace parser {
             float vLength = length();
             return Vec3f{x / vLength, y / vLength, z / vLength};
         }
+
         float length() const {
             return sqrt(x * x + y * y + z * z);
+        }
+
+        void clamp(float a, float b) {
+            x = std::max(a, std::min(x, b));
+            y = std::max(a, std::min(y, b));
+            z = std::max(a, std::min(z, b));
         }
 
 
@@ -78,11 +92,13 @@ namespace parser {
 
     struct Vec3i {
         int x, y, z;
-        void toPixel(Pixel& pixel) {
+
+        void toPixel(Pixel &pixel) {
             pixel[0] = x;
             pixel[1] = y;
             pixel[2] = z;
         }
+
         int &operator[](int i) {
             switch (i) {
                 case 0:
@@ -94,6 +110,42 @@ namespace parser {
                 default:
                     return x;
             }
+        }
+
+        Vec3i operator+(const Vec3f &v) const {
+            return Vec3i{(int) (x + v.x), (int) (y + v.y), (int) (z + v.z)};
+        }
+
+        Vec3i operator+(const Vec3i &v) const {
+            return Vec3i{x + v.x, y + v.y, z + v.z};
+        }
+
+        Vec3i& operator+=(const Vec3i& rhs){
+            x += rhs.x;
+            y += rhs.y;
+            z += rhs.z;
+            return *this;
+        }
+
+        Vec3i& operator+=(const Vec3f& rhs){
+            x += rhs.x;
+            y += rhs.y;
+            z += rhs.z;
+            return *this;
+        }
+
+        Vec3i dotWithoutSum(const Vec3f &v) const {
+            return Vec3i{(int) (x * v.x), (int) (y * v.y), (int) (z * v.z)};
+        }
+
+        void clamp(int a, int b) {
+            x = std::max(a, std::min(x, b));
+            y = std::max(a, std::min(y, b));
+            z = std::max(a, std::min(z, b));
+        }
+
+        bool allGreaterEqualTo(int a) {
+            return x >= a && y >= a && z >= a;
         }
     };
 
