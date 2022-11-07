@@ -88,7 +88,7 @@ public:
 
     // source: book. also taking advantage of floating point arithmetic,
     // when a direction component is 0, result is intinity but it does not affect the result. thus we don't need branches
-    bool intersects(Box box) {
+    IntersectionPoint intersectsFast(Box box) {
         float tx1 = (box.min.x - origin.x) * oneOverDirection.x;
         float tx2 = (box.max.x - origin.x) * oneOverDirection.x;
 
@@ -107,9 +107,55 @@ public:
         tmin = std::max(tmin, std::min(tz1, tz2));
         tmax = std::min(tmax, std::max(tz1, tz2));
 
-        return tmax >= std::max(0.0f, tmin);
+        if (tmax >= std::max(0.0f, tmin)) {
+            return {tmin, tmax, {0, 0, 0}, -1, true};
+        } else {
+            return {-1, -1, {0, 0, 0}, -1, false};
+        }
 
     }
+
+    // source: book
+    IntersectionPoint intersects(Box box) {
+        float tmin = (box.min.x - origin.x) / direction.x;
+        float tmax = (box.max.x - origin.x) / direction.x;
+
+        if (tmin > tmax) std::swap(tmin, tmax);
+
+        float tymin = (box.min.y - origin.y) / direction.y;
+        float tymax = (box.max.y - origin.y) / direction.y;
+
+        if (tymin > tymax) std::swap(tymin, tymax);
+
+        if ((tmin > tymax) || (tymin > tmax))
+            return {-1, -1, {0}, -1, false};
+
+        if (tymin > tmin)
+            tmin = tymin;
+
+        if (tymax < tmax)
+            tmax = tymax;
+
+        float tzmin = (box.min.z - origin.z) / direction.z;
+        float tzmax = (box.max.z - origin.z) / direction.z;
+
+        if (tzmin > tzmax) std::swap(tzmin, tzmax);
+
+        if ((tmin > tzmax) || (tzmin > tmax))
+            return {0, 0, {0}, -1, false};
+
+        if (tzmin > tmin)
+            tmin = tzmin;
+
+        if (tzmax < tmax)
+            tmax = tzmax;
+        if (tmin < 0 && tmax < 0) {
+            return {-1, -1, {0, 0, 0}, -1, false};
+        }
+        return {tmin, tmax, {0, 0, 0}, -1, true};
+
+    }
+
 
     IntersectionPoint intersects(Scene &scene, Triangle &triangle) {
         IntersectionPoint point = {-1, -1, {-1, -1, -1}, triangle.material_id, false};
@@ -163,31 +209,50 @@ public:
     IntersectionPoint getFirstIntersection(Scene &scene, BVHTree &tree) {
         IntersectionPoint firstIntersection = {-1, -1, {-1, -1}, -1, false};
         std::stack<BVHNode *> stack = startTraversing();
+        float tMax = std::numeric_limits<float>::max();
+
 
         while (!stack.empty()) {
-            auto node = traverse(stack);
-            if (node && node->isLeaf()) {
-                for (auto triangle: node->triangles) {
-                    auto intersectionPoint = intersects(scene, triangle);
-                    if (intersectionPoint.exists) {
-                        if (intersectionPoint.tSmall < firstIntersection.tSmall || firstIntersection.tSmall == -1) {
-                            firstIntersection = intersectionPoint;
+            auto node = stack.top();
+            stack.pop();
+            auto intersection = intersects(node->box);
 
+            if (intersection.exists && intersection.tSmall < tMax) {
+                if (!node->isLeaf()) {
+                    if (direction[node->axis] > 0) {
+                        stack.push(node->right);
+                        stack.push(node->left);
+                    } else {
+                        stack.push(node->left);
+                        stack.push(node->right);
+                    }
+
+                } else {
+                    for (auto triangle: node->triangles) {
+                        auto intersectionPoint = intersects(scene, triangle);
+                        if (intersectionPoint.exists) {
+                            if (intersectionPoint.tSmall < firstIntersection.tSmall || firstIntersection.tSmall == -1) {
+                                firstIntersection = intersectionPoint;
+                                tMax = firstIntersection.tSmall;
+                            }
                         }
                     }
-                }
-                for (auto &sphere: node->spheres) {
-                    auto intersectionPoint = intersects(sphere);
-                    if (intersectionPoint.exists) {
-                        if (intersectionPoint.tSmall < firstIntersection.tSmall || firstIntersection.tSmall == -1) {
-                            firstIntersection = intersectionPoint;
+                    for (auto &sphere: node->spheres) {
+                        auto intersectionPoint = intersects(sphere);
+                        if (intersectionPoint.exists) {
+                            if (intersectionPoint.tSmall < firstIntersection.tSmall || firstIntersection.tSmall == -1) {
+                                firstIntersection = intersectionPoint;
+                                tMax = firstIntersection.tSmall;
+                            }
                         }
                     }
+
                 }
-
-
             }
+
+
         }
+
         return firstIntersection;
     }
 
@@ -225,21 +290,30 @@ public:
         return stack;
     }
 
+    BVHNode *traverseForHitNode(std::stack<BVHNode *> &stack) {
+        auto node = stack.top();
+        stack.pop();
+        auto intersection = intersects(node->box);
+        if (intersection.exists) {
+            if (!node->isLeaf()) {
+                if (direction[node->axis] > 0) {
+                    stack.push(node->right);
+                    stack.push(node->left);
+                } else {
+                    stack.push(node->left);
+                    stack.push(node->right);
+                }
+
+            }
+            return node;
+        }
+        return nullptr;
+    }
+
     BVHNode *traverse(std::stack<BVHNode *> &stack) {
         auto node = stack.top();
         stack.pop();
-        if (intersects(node->box)) {
-            if (!node->isLeaf()) {
-                stack.push(node->right);
-                stack.push(node->left);
-            }
-        }
-        return node;
-    }
-    BVHNode *traverseForFirstIntersection(std::stack<BVHNode *> &stack) {
-        auto node = stack.top();
-        stack.pop();
-        if (intersects(node->box)) {
+        if (intersects(node->box).exists) {
             if (!node->isLeaf()) {
                 stack.push(node->right);
                 stack.push(node->left);
@@ -432,7 +506,7 @@ int main(int argc, char *argv[]) {
 
 
     auto begin2 = std::chrono::high_resolution_clock::now();
-    int renderCount = 10; // todo: make it 1. 10 is for performance measurement
+    int renderCount = 5; // todo: make it 1. 10 is for performance measurement
     for (int i = 0; i < renderCount; ++i) {
         for (auto camera: scene.cameras) {
             auto image = rayTracer.render(camera);
