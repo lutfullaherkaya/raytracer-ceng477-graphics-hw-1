@@ -86,34 +86,7 @@ public:
 
     }
 
-    // source: book. also taking advantage of floating point arithmetic,
-    // when a direction component is 0, result is intinity but it does not affect the result. thus we don't need branches
-    IntersectionPoint intersectsFast(Box box) {
-        float tx1 = (box.min.x - origin.x) * oneOverDirection.x;
-        float tx2 = (box.max.x - origin.x) * oneOverDirection.x;
 
-        float tmin = std::min(tx1, tx2);
-        float tmax = std::max(tx1, tx2);
-
-        float ty1 = (box.min.y - origin.y) * oneOverDirection.y;
-        float ty2 = (box.max.y - origin.y) * oneOverDirection.y;
-
-        tmin = std::max(tmin, std::min(ty1, ty2));
-        tmax = std::min(tmax, std::max(ty1, ty2));
-
-        float tz1 = (box.min.z - origin.z) * oneOverDirection.z;
-        float tz2 = (box.max.z - origin.z) * oneOverDirection.z;
-
-        tmin = std::max(tmin, std::min(tz1, tz2));
-        tmax = std::min(tmax, std::max(tz1, tz2));
-
-        if (tmax >= std::max(0.0f, tmin)) {
-            return {tmin, tmax, {0, 0, 0}, -1, true};
-        } else {
-            return {-1, -1, {0, 0, 0}, -1, false};
-        }
-
-    }
 
     // source: book
     IntersectionPoint intersects(Box box) {
@@ -377,11 +350,12 @@ class RayTracer {
 public:
     parser::Scene scene;
     BVHTree tree;
+    BVHTree backfaceCulledTree;
     Camera *currentCamera;
     Image currentImage;
     EyeRayGenerator eyeRayGenerator;
 
-    explicit RayTracer(parser::Scene &scene) : scene(scene), tree(scene), eyeRayGenerator(scene, tree) {
+    explicit RayTracer(parser::Scene &scene) : scene(scene), tree(scene), backfaceCulledTree(scene), eyeRayGenerator(scene, tree) {
         std::list<Triangle> triangles(scene.triangles.begin(), scene.triangles.end());
         for (auto &mesh: scene.meshes) {
             for (auto &face: mesh.faces) {
@@ -389,6 +363,38 @@ public:
             }
         }
         tree.build(triangles);
+
+
+
+    }
+
+    void buildTheBackfaceCulledTree() {
+        std::list<Triangle> triangles(scene.triangles.begin(), scene.triangles.end());
+        for (auto &mesh: scene.meshes) {
+            for (auto &face: mesh.faces) {
+                triangles.emplace_back(mesh.material_id, face);
+            }
+        }
+
+
+        std::list<Triangle> trianglesBackfaceCulled;
+        // filter triangles by backface culling
+        for (auto& triangle: triangles) {
+            if (triangleFacesCamera(triangle)) {
+                trianglesBackfaceCulled.push_back(triangle);
+            }
+        }
+        backfaceCulledTree.build(trianglesBackfaceCulled);
+    }
+
+    bool triangleFacesCamera(Triangle &triangle) {
+        auto a = scene.vertex_data[triangle.indices.v0_id - 1];
+        auto b = scene.vertex_data[triangle.indices.v1_id - 1];
+        auto c = scene.vertex_data[triangle.indices.v2_id - 1];
+        auto normal = ((b - a).crossProduct(c - a)).normalize();
+
+        auto direction = a - currentCamera->position;
+        return normal * direction < 0;
     }
 
     void renderRowsWithModulo(int threadNumber, int totalThreads) {
@@ -404,6 +410,8 @@ public:
     Image render(Camera &camera) {
         auto image = new Pixel[camera.image_width * camera.image_height];
         currentCamera = &camera;
+        buildTheBackfaceCulledTree();
+
         currentImage = image;
         eyeRayGenerator.init(currentCamera);
         auto processor_count = std::thread::hardware_concurrency();
@@ -430,7 +438,13 @@ public:
         if (depth > ray.scene.max_recursion_depth) {
             return rayTracedColor;
         }
-        IntersectionPoint intersection = ray.getFirstIntersection(scene, tree);
+        IntersectionPoint intersection;
+        if (depth == 0) {
+            intersection = ray.getFirstIntersection(scene, backfaceCulledTree);
+        } else {
+            intersection = ray.getFirstIntersection(scene, tree);
+        }
+
         if (intersection.exists) {
             auto &material = scene.materials[intersection.material_id - 1];
 
@@ -510,8 +524,12 @@ int main(int argc, char *argv[]) {
     printf("Planted trees in %.3f seconds.\n", elapsed1.count() * 1e-9);
 
 
+    for (auto camera: scene.cameras) { // todo: sil. bunu cache misslerin performans olcumunu etkilememesi icin yapiyorum.
+        auto image = rayTracer.render(camera);
+        write_ppm(camera.image_name.c_str(), (unsigned char *) image, camera.image_width, camera.image_height);
+    }
     auto begin2 = std::chrono::high_resolution_clock::now();
-    int renderCount = 5; // todo: make it 1. 10 is for performance measurement
+    int renderCount = 10; // todo: make it 1. 10 is for performance measurement
     for (int i = 0; i < renderCount; ++i) {
         for (auto camera: scene.cameras) {
             auto image = rayTracer.render(camera);
