@@ -18,6 +18,10 @@ float det(float m[3][3]) {
            m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
 }
 
+float clampFloat(float x, float min, float max) {
+    return std::max(min, std::min(max, x));
+}
+
 
 #define T_MIN_EPSILON 0.001f
 
@@ -50,7 +54,7 @@ public:
     }
 
 
-    IntersectionPoint intersects(Scene &scene, Sphere sphere) {
+    IntersectionPoint intersectsS(Scene &scene, Sphere sphere) {
         IntersectionPoint result = {-1, -1, {0, 0, 0}, sphere.material_id, false};
         auto c = scene.vertex_data[sphere.center_vertex_id - 1];
         auto r = sphere.radius;
@@ -79,7 +83,7 @@ public:
     }
 
     // source: book
-    IntersectionPoint intersects(Scene &scene, Box box) {
+    IntersectionPoint intersectsB(Scene &scene, Box box) {
         float tmin = (box.min.x - origin.x) / direction.x;
         float tmax = (box.max.x - origin.x) / direction.x;
 
@@ -185,7 +189,7 @@ public:
                     }
                 }
                 for (auto &sphere: node->spheres) {
-                    auto intersectionPoint = intersects(scene, sphere);
+                    auto intersectionPoint = intersectsS(scene, sphere);
                     if (intersectionPoint.exists) {
                         if (intersectionPoint.tSmall < firstIntersection.tSmall || firstIntersection.tSmall == -1) {
                             firstIntersection = intersectionPoint;
@@ -215,7 +219,7 @@ public:
                     }
                 }
                 for (auto &sphere: node->spheres) {
-                    auto intersectionPoint = intersects(scene, sphere);
+                    auto intersectionPoint = intersectsS(scene, sphere);
                     if (intersectionPoint.exists) {
                         if (intersectionPoint.tSmall < t) { // todo: maybe float error for t
                             return intersectionPoint;
@@ -238,7 +242,7 @@ public:
     BVHNode *traverse(std::stack<BVHNode *> &stack) {
         auto node = stack.top();
         stack.pop();
-        if (intersects(scene, node->box).exists) {
+        if (intersectsB(scene, node->box).exists) {
             if (!node->isLeaf()) {
                 if (node->left->box.contains(origin)) {
                     stack.push(node->right);
@@ -399,7 +403,7 @@ public:
                     }
 
                     if (!rayTracedColor.allGreaterEqualTo(255)) {
-                        auto diffuse = (material.diffuse * myClamp(cosTheta, 0, 1)).dotWithoutSum(receivedIrradiance);
+                        auto diffuse = (material.diffuse * clampFloat(cosTheta, 0, 1)).dotWithoutSum(receivedIrradiance);
                         rayTracedColor += diffuse;
                     }
 
@@ -447,7 +451,7 @@ int main(int argc, char *argv[]) {
 
 
     auto begin2 = std::chrono::high_resolution_clock::now();
-    int renderCount = 10; // todo: make it 1. 10 is for performance measurement
+    int renderCount = 1; // todo: make it 1. 10 is for performance measurement
     for (int i = 0; i < renderCount; ++i) {
         for (auto camera: scene.cameras) {
             auto image = rayTracer.render(camera);

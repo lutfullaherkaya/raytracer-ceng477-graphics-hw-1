@@ -12,9 +12,6 @@ namespace parser {
     typedef unsigned char Pixel[3];
     typedef Pixel *Image;
 
-    float myClamp(float x, float min, float max) {
-        return std::max(min, std::min(max, x));
-    }
 
     //Notice that all the structures are as simple as possible
     //so that you are not enforced to adopt any style or design.
