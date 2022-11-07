@@ -315,8 +315,13 @@ public:
         stack.pop();
         if (intersects(node->box).exists) {
             if (!node->isLeaf()) {
-                stack.push(node->right);
-                stack.push(node->left);
+                if (direction[node->axis] > 0) {
+                    stack.push(node->right);
+                    stack.push(node->left);
+                } else {
+                    stack.push(node->left);
+                    stack.push(node->right);
+                }
             }
             return node;
         }
