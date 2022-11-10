@@ -78,16 +78,18 @@ namespace parser {
             return sqrt(x * x + y * y + z * z);
         }
 
-        void clamp(float a, float b) {
-            x = std::max(a, std::min(x, b));
-            y = std::max(a, std::min(y, b));
-            z = std::max(a, std::min(z, b));
+        Vec3f clamp(float a, float b) {
+            float x_ = std::max(a, std::min(x, b));
+            float y_ = std::max(a, std::min(y, b));
+            float z_ = std::max(a, std::min(z, b));
+            return {x_, y_, z_};
         }
 
         void toPixel(Pixel &pixel) {
-            pixel[0] = round(x);
-            pixel[1] = round(y);
-            pixel[2] = round(z);
+            auto clamped = clamp(0, 255);
+            pixel[0] = round(clamped.x);
+            pixel[1] = round(clamped.y);
+            pixel[2] = round(clamped.z);
         }
 
         bool allGreaterEqualTo(int a) {

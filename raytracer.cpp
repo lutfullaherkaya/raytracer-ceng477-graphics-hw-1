@@ -440,15 +440,12 @@ public:
             Vec3f intersectionPnt = ray.getPoint(intersection.tSmall) + intersection.normal * scene.shadow_ray_epsilon;
 
             for (auto &light: scene.point_lights) {
-                if (rayTracedColor.allGreaterEqualTo(255)) {
-                    break;
-                }
                 auto lightDistance = (light.position - intersectionPnt).length();
                 auto lightRayDirection = (light.position - intersectionPnt).normalize();
                 auto lightRay = Ray(intersectionPnt, lightRayDirection, scene, tree);
                 auto lightRayIntersection = lightRay.getAnyIntersectionUntilT(scene, tree, lightDistance);
 
-                if (!lightRayIntersection.exists && !rayTracedColor.allGreaterEqualTo(255)) {
+                if (!lightRayIntersection.exists) {
                     float cosTheta = lightRayDirection * intersection.normal;
                     auto receivedIrradiance = light.intensity / (lightDistance * lightDistance);
 
@@ -461,25 +458,25 @@ public:
                         rayTracedColor += specular;
                     }
 
-                    if (!rayTracedColor.allGreaterEqualTo(255)) {
-                        auto diffuse = (material.diffuse * clampFloat(cosTheta, 0, 1)).dotWithoutSum(
-                                receivedIrradiance);
-                        rayTracedColor += diffuse;
-                    }
+                    auto diffuse = (material.diffuse * clampFloat(cosTheta, 0, 1)).dotWithoutSum(
+                            receivedIrradiance);
+                    rayTracedColor += diffuse;
+
 
                 }
 
             }
 
 
-            if (material.is_mirror && !rayTracedColor.allGreaterEqualTo(255)) {
+            if (material.is_mirror) {
+                ray.direction = ray.direction.normalize();
+                intersection.normal = intersection.normal.normalize();
                 auto reflectionCosTheta = -ray.direction * intersection.normal;
                 Ray reflectionRay(intersectionPnt,
                                   ray.direction + intersection.normal * 2 * reflectionCosTheta, scene, tree);
                 auto reflectedColor = rayTrace(reflectionRay, depth + 1);
 
                 rayTracedColor = rayTracedColor + reflectedColor.dotWithoutSum(material.mirror);
-
             }
 
 
@@ -491,8 +488,7 @@ public:
             }
 
         }
-        rayTracedColor.clamp(0, 255);
-        return rayTracedColor;
+        return rayTracedColor.clamp(0, std::numeric_limits<float>::max());
     }
 
 
