@@ -84,7 +84,22 @@ namespace parser {
             z = std::max(a, std::min(z, b));
         }
 
+        void toPixel(Pixel &pixel) {
+            pixel[0] = round(x);
+            pixel[1] = round(y);
+            pixel[2] = round(z);
+        }
 
+        bool allGreaterEqualTo(int a) {
+            return x >= a && y >= a && z >= a;
+        }
+
+        Vec3f& operator+=(const Vec3f& rhs){
+            x += rhs.x;
+            y += rhs.y;
+            z += rhs.z;
+            return *this;
+        }
     };
 
     struct Vec3i {

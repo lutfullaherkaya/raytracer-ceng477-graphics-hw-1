@@ -425,8 +425,8 @@ public:
 
     }
 
-    Vec3i rayTrace(Ray &ray, int depth = 0) {
-        Vec3i rayTracedColor = {0, 0, 0};
+    Vec3f rayTrace(Ray &ray, int depth = 0) {
+        Vec3f rayTracedColor = {0, 0, 0};
         if (depth > ray.scene.max_recursion_depth) {
             return rayTracedColor;
         }
@@ -455,8 +455,8 @@ public:
 
                     float theta = acos(cosTheta) * 180 / 3.14159265358;
                     if (0 < theta && theta < 90) {
-                        auto h = (lightRay.direction + -ray.direction).normalize();
-                        float cosaToTheP = pow(std::max(0.0f, intersection.normal * h), material.phong_exponent);
+                        auto h = (lightRay.direction.normalize() + -ray.direction.normalize()).normalize();
+                        float cosaToTheP = pow(std::max(0.0f, intersection.normal.normalize() * h), material.phong_exponent);
                         auto specular = (material.specular * cosaToTheP).dotWithoutSum(receivedIrradiance);
                         rayTracedColor += specular;
                     }
@@ -487,7 +487,7 @@ public:
             if (depth > 0) {
                 return {0, 0, 0};
             } else {
-                return scene.background_color;
+                return {(float)scene.background_color.x, (float)scene.background_color.y, (float)scene.background_color.z};
             }
 
         }
@@ -511,7 +511,7 @@ int main(int argc, char *argv[]) {
 
 
     auto begin2 = std::chrono::high_resolution_clock::now();
-    int renderCount = 5; // todo: make it 1. 10 is for performance measurement
+    int renderCount = 1; // todo: make it 1. 10 is for performance measurement
     for (int i = 0; i < renderCount; ++i) {
         for (auto camera: scene.cameras) {
             auto image = rayTracer.render(camera);
