@@ -452,7 +452,7 @@ public:
 
                     float theta = acos(cosTheta) * 180 / 3.14159265358;
                     if (0 < theta && theta < 90) {
-                        auto h = (lightRay.direction.normalize() + -ray.direction.normalize()).normalize();
+                        auto h = (lightRay.direction + -ray.direction.normalize()).normalize();
                         float cosaToTheP = pow(std::max(0.0f, intersection.normal.normalize() * h), material.phong_exponent);
                         auto specular = (material.specular * cosaToTheP).dotWithoutSum(receivedIrradiance);
                         rayTracedColor += specular;
