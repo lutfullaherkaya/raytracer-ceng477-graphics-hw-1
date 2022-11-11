@@ -95,20 +95,20 @@ public:
     // when a direction component is 0, result is intinity but it does not affect the result. thus we don't need branches
     // also division is slower than multiplication, so we cache one over direction
     BoxIntersection intersects(Box box) {
-        float tx1 = (box.min.x - origin.x) * oneOverDirection.x;
-        float tx2 = (box.max.x - origin.x) * oneOverDirection.x;
+        auto tx1 = (box.min.x - origin.x) * oneOverDirection.x;
+        auto tx2 = (box.max.x - origin.x) * oneOverDirection.x;
 
-        float tmin = std::min(tx1, tx2);
-        float tmax = std::max(tx1, tx2);
+        auto tmin = std::min(tx1, tx2);
+        auto tmax = std::max(tx1, tx2);
 
-        float ty1 = (box.min.y - origin.y) * oneOverDirection.y;
-        float ty2 = (box.max.y - origin.y) * oneOverDirection.y;
+        auto ty1 = (box.min.y - origin.y) * oneOverDirection.y;
+        auto ty2 = (box.max.y - origin.y) * oneOverDirection.y;
 
         tmin = std::max(tmin, std::min(ty1, ty2));
         tmax = std::min(tmax, std::max(ty1, ty2));
 
-        float tz1 = (box.min.z - origin.z) * oneOverDirection.z;
-        float tz2 = (box.max.z - origin.z) * oneOverDirection.z;
+        auto tz1 = (box.min.z - origin.z) * oneOverDirection.z;
+        auto tz2 = (box.max.z - origin.z) * oneOverDirection.z;
 
         tmin = std::max(tmin, std::min(tz1, tz2));
         tmax = std::min(tmax, std::max(tz1, tz2));
@@ -177,8 +177,7 @@ public:
 
 
         while (!stack.empty()) {
-            auto node = stack.top();
-            stack.pop();
+            auto node = stack.top();            stack.pop();
             auto intersection = intersects(node->box);
 
             if (intersection.exists && intersection.t <= tMax) {
