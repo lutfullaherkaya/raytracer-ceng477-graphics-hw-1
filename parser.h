@@ -234,7 +234,7 @@ namespace parser {
     struct Triangle {
         int material_id;
         Face indices;
-
+        Vec3f normal = Vec3f{0, 0, 0};
         Triangle() = default;
 
         Triangle(int material_id, Face indices) : material_id(material_id), indices(indices) {}

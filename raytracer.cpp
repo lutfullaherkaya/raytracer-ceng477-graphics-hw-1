@@ -25,10 +25,15 @@ float clampFloat(float x, float min, float max) {
 
 #define T_MIN_EPSILON 0.001f
 
-struct IntersectionPoint {
+struct Intersection {
     float tSmall, tLarge;
     Vec3f normal;
     int material_id;
+    bool exists;
+};
+
+struct BoxIntersection {
+    float t;
     bool exists;
 };
 
@@ -58,8 +63,8 @@ public:
     }
 
 
-    IntersectionPoint intersects(Sphere sphere) {
-        IntersectionPoint result = {-1, -1, {0, 0, 0}, sphere.material_id, false};
+    Intersection intersects(Sphere sphere) {
+        Intersection result = {-1, -1, {0, 0, 0}, sphere.material_id, false};
         auto c = scene.vertex_data[sphere.center_vertex_id - 1];
         auto r = sphere.radius;
         auto d = direction;
@@ -88,7 +93,8 @@ public:
 
     // source: book. also taking advantage of floating point arithmetic,
     // when a direction component is 0, result is intinity but it does not affect the result. thus we don't need branches
-    IntersectionPoint intersectsFast(Box box) {
+    // also division is slower than multiplication, so we cache one over direction
+    BoxIntersection intersects(Box box) {
         float tx1 = (box.min.x - origin.x) * oneOverDirection.x;
         float tx2 = (box.max.x - origin.x) * oneOverDirection.x;
 
@@ -108,60 +114,19 @@ public:
         tmax = std::min(tmax, std::max(tz1, tz2));
 
         if (tmax >= std::max(0.0f, tmin)) {
-            return {tmin, tmax, {0, 0, 0}, -1, true};
+            return {tmin, true};
         } else {
-            return {-1, -1, {0, 0, 0}, -1, false};
+            return {-1, false};
         }
 
     }
 
-    // source: book
-    IntersectionPoint intersects(Box box) {
-        float tmin = (box.min.x - origin.x) / direction.x;
-        float tmax = (box.max.x - origin.x) / direction.x;
 
-        if (tmin > tmax) std::swap(tmin, tmax);
-
-        float tymin = (box.min.y - origin.y) / direction.y;
-        float tymax = (box.max.y - origin.y) / direction.y;
-
-        if (tymin > tymax) std::swap(tymin, tymax);
-
-        if ((tmin > tymax) || (tymin > tmax))
-            return {-1, -1, {0}, -1, false};
-
-        if (tymin > tmin)
-            tmin = tymin;
-
-        if (tymax < tmax)
-            tmax = tymax;
-
-        float tzmin = (box.min.z - origin.z) / direction.z;
-        float tzmax = (box.max.z - origin.z) / direction.z;
-
-        if (tzmin > tzmax) std::swap(tzmin, tzmax);
-
-        if ((tmin > tzmax) || (tzmin > tmax))
-            return {0, 0, {0}, -1, false};
-
-        if (tzmin > tmin)
-            tmin = tzmin;
-
-        if (tzmax < tmax)
-            tmax = tzmax;
-        if (tmin < 0 && tmax < 0) {
-            return {-1, -1, {0, 0, 0}, -1, false};
-        }
-        return {tmin, tmax, {0, 0, 0}, -1, true};
-
-    }
-
-
-    IntersectionPoint intersects(Scene &scene, Triangle &triangle) {
-        IntersectionPoint point = {-1, -1, {-1, -1, -1}, triangle.material_id, false};
-        auto a = scene.vertex_data[triangle.indices.v0_id - 1];
-        auto b = scene.vertex_data[triangle.indices.v1_id - 1];
-        auto c = scene.vertex_data[triangle.indices.v2_id - 1];
+    Intersection intersects(Scene &scene, Triangle &triangle) {
+        Intersection point = {-1, -1, triangle.normal, triangle.material_id, false};
+        auto &a = scene.vertex_data[triangle.indices.v0_id - 1];
+        auto &b = scene.vertex_data[triangle.indices.v1_id - 1];
+        auto &c = scene.vertex_data[triangle.indices.v2_id - 1];
 
         float A[3][3] = {
                 {a.x - b.x, a.x - c.x, direction.x},
@@ -200,14 +165,13 @@ public:
             t >= tMin) {
             point.exists = true;
             point.tSmall = t;
-            point.normal = ((b - a).crossProduct(c - a)).normalize();
         }
         return point;
 
     }
 
-    IntersectionPoint getFirstIntersection(Scene &scene, BVHTree &tree) {
-        IntersectionPoint firstIntersection = {-1, -1, {-1, -1}, -1, false};
+    Intersection getFirstIntersection(Scene &scene, BVHTree &tree) {
+        Intersection firstIntersection = {-1, -1, {-1, -1}, -1, false};
         std::stack<BVHNode *> stack = startTraversing();
         float tMax = std::numeric_limits<float>::max();
 
@@ -217,7 +181,7 @@ public:
             stack.pop();
             auto intersection = intersects(node->box);
 
-            if (intersection.exists && intersection.tSmall <= tMax) {
+            if (intersection.exists && intersection.t <= tMax) {
                 if (!node->isLeaf()) {
                     if (direction[node->axis] > 0) {
                         stack.push(node->right);
@@ -256,8 +220,8 @@ public:
         return firstIntersection;
     }
 
-    IntersectionPoint getAnyIntersectionUntilT(Scene &scene, BVHTree &tree, float t) {
-        IntersectionPoint firstIntersection = {-1, -1, {0}, -1, false};
+    Intersection getAnyIntersectionUntilT(Scene &scene, BVHTree &tree, float t) {
+        Intersection firstIntersection = {-1, -1, {0}, -1, false};
         std::stack<BVHNode *> stack = startTraversing();
 
         while (!stack.empty()) {
@@ -290,25 +254,6 @@ public:
         return stack;
     }
 
-    BVHNode *traverseForHitNode(std::stack<BVHNode *> &stack) {
-        auto node = stack.top();
-        stack.pop();
-        auto intersection = intersects(node->box);
-        if (intersection.exists) {
-            if (!node->isLeaf()) {
-                if (direction[node->axis] > 0) {
-                    stack.push(node->right);
-                    stack.push(node->left);
-                } else {
-                    stack.push(node->left);
-                    stack.push(node->right);
-                }
-
-            }
-            return node;
-        }
-        return nullptr;
-    }
 
     BVHNode *traverse(std::stack<BVHNode *> &stack) {
         auto node = stack.top();
@@ -388,6 +333,12 @@ public:
                 triangles.emplace_back(mesh.material_id, face);
             }
         }
+        for (auto &triangle: triangles) {
+            auto &a = scene.vertex_data[triangle.indices.v0_id - 1];
+            auto &b = scene.vertex_data[triangle.indices.v1_id - 1];
+            auto &c = scene.vertex_data[triangle.indices.v2_id - 1];
+            triangle.normal = ((b - a).crossProduct(c - a)).normalize();
+        }
         tree.build(triangles);
     }
 
@@ -430,7 +381,7 @@ public:
         if (depth > ray.scene.max_recursion_depth) {
             return rayTracedColor;
         }
-        IntersectionPoint intersection = ray.getFirstIntersection(scene, tree);
+        Intersection intersection = ray.getFirstIntersection(scene, tree);
         if (intersection.exists) {
             auto &material = scene.materials[intersection.material_id - 1];
 
@@ -453,7 +404,8 @@ public:
                     float theta = acos(cosTheta) * 180 / 3.14159265358;
                     if (0 < theta && theta < 90) {
                         auto h = (lightRay.direction + -ray.direction.normalize()).normalize();
-                        float cosaToTheP = pow(std::max(0.0f, intersection.normal.normalize() * h), material.phong_exponent);
+                        float cosaToTheP = pow(std::max(0.0f, intersection.normal.normalize() * h),
+                                               material.phong_exponent);
                         auto specular = (material.specular * cosaToTheP).dotWithoutSum(receivedIrradiance);
                         rayTracedColor += specular;
                     }
@@ -484,7 +436,8 @@ public:
             if (depth > 0) {
                 return {0, 0, 0};
             } else {
-                return {(float)scene.background_color.x, (float)scene.background_color.y, (float)scene.background_color.z};
+                return {(float) scene.background_color.x, (float) scene.background_color.y,
+                        (float) scene.background_color.z};
             }
 
         }
@@ -507,7 +460,7 @@ int main(int argc, char *argv[]) {
 
 
     auto begin2 = std::chrono::high_resolution_clock::now();
-    int renderCount = 1; // todo: make it 1. 10 is for performance measurement
+    int renderCount = 10; // todo: make it 1. 10 is for performance measurement
     for (int i = 0; i < renderCount; ++i) {
         for (auto camera: scene.cameras) {
             auto image = rayTracer.render(camera);
