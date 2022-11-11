@@ -392,16 +392,17 @@ public:
             for (auto &light: scene.point_lights) {
                 auto lightDistance = (light.position - intersectionPnt).length();
                 auto lightRayDirection = (light.position - intersectionPnt).normalize();
+                auto lightRayDirectionReal = (light.position - ray.getPoint(intersection.tSmall)).normalize();
                 auto lightRay = Ray(intersectionPnt, lightRayDirection, scene, tree);
                 auto lightRayIntersection = lightRay.getAnyIntersectionUntilT(scene, tree, lightDistance);
 
                 if (!lightRayIntersection.exists) {
-                    float cosTheta = lightRayDirection * intersection.normal;
+                    float cosTheta = lightRayDirectionReal * intersection.normal;
                     auto receivedIrradiance = light.intensity / (lightDistance * lightDistance);
 
 
-                    float theta = acos(cosTheta) * 180 / 3.14159265358;
-                    if (0 < theta && theta < 90) {
+                    float theta = acos(cosTheta) * 180 / 3.1415;
+                    if (theta <= 90.01) { // without lightRayDirectionReal and 0.01, this is false instead of true
                         auto h = (lightRay.direction + -ray.direction.normalize()).normalize();
                         float cosaToTheP = pow(std::max(0.0f, intersection.normal.normalize() * h),
                                                material.phong_exponent);
@@ -469,4 +470,5 @@ int main(int argc, char *argv[]) {
     auto end2 = std::chrono::high_resolution_clock::now();
     auto elapsed2 = std::chrono::duration_cast<std::chrono::nanoseconds>(end2 - begin2);
     printf("Rendered in %.3f seconds.\n", elapsed2.count() * 1e-9 / renderCount);
+    printf("Total: %.3f seconds.\n", (elapsed2.count() * 1e-9 / renderCount) + (elapsed1.count() * 1e-9));
 }
