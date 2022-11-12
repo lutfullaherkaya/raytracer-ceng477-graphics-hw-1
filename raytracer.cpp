@@ -9,6 +9,8 @@
 #include <stack>
 #include <utility>
 #include <thread>
+#include <mutex>
+#include <condition_variable>
 
 using namespace parser;
 
@@ -346,13 +348,23 @@ public:
         tree.build(triangles);
     }
 
-    void renderWithMultipleThreads(int threadNumber, int totalThreads) {
+    void renderWithMultipleThreads(int threadNumber, int totalThreads, std::mutex *m, std::condition_variable *cv, bool *ready, int *lastRenderedRow) {
         for (int rowNum = threadNumber; rowNum < currentCamera->image_height; rowNum+=totalThreads){
             for (int colNum = 0; colNum < currentCamera->image_width; colNum++) {
                 Ray eyeRay = eyeRayGenerator.generate(rowNum, colNum);
                 auto raytracedColor = rayTrace(eyeRay);
                 raytracedColor.toPixel(currentImage[currentCamera->image_width * rowNum + colNum]);
             }
+            if (rowNum % 128 == 127) {
+                *lastRenderedRow = rowNum;
+                std::lock_guard<std::mutex> lk(*m);
+/*
+                std::cout << "Thread " << threadNumber << " finished row " << rowNum << std::endl;
+*/
+                *ready = true;
+                cv->notify_all();
+            }
+
         }
     }
 
@@ -361,6 +373,11 @@ public:
         currentCamera = &camera;
         currentImage = image;
         eyeRayGenerator.init(currentCamera);
+        std::mutex m;
+        std::condition_variable cv;
+        int lastRenderedRow = 0;
+        bool ready = false;
+
         auto processor_count = std::thread::hardware_concurrency();
         if (processor_count == 0) {
             processor_count = 8; // todo: try out different thread numbers for inek. maybe inek does not have 4 cores
@@ -368,13 +385,44 @@ public:
         std::vector<std::thread> threads;
         threads.reserve(processor_count);
         std::cout << "Rendering " << camera.image_name << " with " << processor_count << " threads (cores)..." << std::endl;
+
+        std::thread ppmWriterThread([&](){
+            PPMWriter writer(camera.image_name.c_str(), (unsigned char *) image, camera.image_width, camera.image_height);
+            while (writer.lastWrittenRow < writer.height-1) {
+                std::unique_lock<std::mutex> lk(m);
+                cv.wait(lk, [&](){return ready;});
+/*
+                std::cout << "Writing row from " << writer.lastWrittenRow << "to " << lastRenderedRow << std::endl;
+*/
+                int lastRenderedRowCopy = lastRenderedRow;
+                ready = false;
+                lk.unlock();
+                for (; writer.lastWrittenRow < lastRenderedRowCopy;) {
+                    writer.writeNextRow();
+                }
+                fflush(writer.outfile);
+
+            }
+
+        });
+
+
+
         auto begin2 = std::chrono::high_resolution_clock::now();
         for (unsigned int i = 0; i < processor_count; i++) {
-            threads.emplace_back(&RayTracer::renderWithMultipleThreads, this, i, processor_count);
+            threads.emplace_back(&RayTracer::renderWithMultipleThreads, this, i, processor_count, &m, &cv, &ready, &lastRenderedRow);
         }
         for (auto &thread: threads) {
             thread.join();
         }
+        {
+            std::lock_guard<std::mutex> lk(m);
+            ready = true;
+            lastRenderedRow = camera.image_height-1;
+            cv.notify_all();
+        }
+
+        ppmWriterThread.join();
         return image;
 
     }
@@ -463,16 +511,12 @@ int main(int argc, char *argv[]) {
     printf("Planted trees in %.3f seconds.\n", elapsed1.count() * 1e-9);
 
 
+
     auto begin2 = std::chrono::high_resolution_clock::now();
     int renderCount = 1; // todo: make it 1. 10 is for performance measurement
     for (int i = 0; i < renderCount; ++i) {
         for (auto camera: scene.cameras) {
             auto image = rayTracer.render(camera);
-            auto begin1 = std::chrono::high_resolution_clock::now();
-            write_ppm(camera.image_name.c_str(), (unsigned char *) image, camera.image_width, camera.image_height);
-            auto end1 = std::chrono::high_resolution_clock::now();
-            auto elapsed1 = std::chrono::duration_cast<std::chrono::nanoseconds>(end1 - begin1);
-            printf("Wrote ppm in %.3f seconds.\n", elapsed1.count() * 1e-9);
         }
     }
     auto end2 = std::chrono::high_resolution_clock::now();
