@@ -13,6 +13,7 @@
 #include "parser.h"
 #include <thread>
 #include <iostream>
+#include <algorithm>
 
 #define MAX_DEPTH 19
 
@@ -35,15 +36,16 @@ using namespace parser;
  */
 struct BVHNode {
     BVHNode() = default;
-
     int depth = 0;
     int axis = 0;
-    std::list<Triangle> triangles; // is empty if not leaf.
-    std::list<Sphere> spheres; // is empty if not leaf.
+    int index = 0;
+    int rightIndex = 0;
+    std::vector<Triangle> triangles; // is empty if not leaf.
+    std::vector<Sphere> spheres; // is empty if not leaf.
     Box box{};
     BVHNode *left = nullptr, *right = nullptr;
 
-    static BVHNode *build(std::list<Triangle> faces, std::list<Sphere> spheres, int depth, Scene &scene) {
+    static BVHNode *build(std::vector<Triangle> faces, std::vector<Sphere> spheres, int depth, Scene &scene) {
         if (faces.empty() && spheres.empty()) {
             return nullptr;
         }
@@ -58,10 +60,10 @@ struct BVHNode {
         } else {
             node->axis = node->box.getWidestAxis();
 
-            std::list<Triangle> leftHalf = {};
-            std::list<Triangle> rightHalf = {};
-            std::list<Sphere> leftSprs = {};
-            std::list<Sphere> rightSprs = {};
+            std::vector<Triangle> leftHalf = {};
+            std::vector<Triangle> rightHalf = {};
+            std::vector<Sphere> leftSprs = {};
+            std::vector<Sphere> rightSprs = {};
 
             if (partition(node, faces, spheres, leftHalf, leftSprs, rightHalf, rightSprs, scene)) {
                 node->right = build(rightHalf, rightSprs, depth + 1, scene);
@@ -76,45 +78,85 @@ struct BVHNode {
         return node;
     }
 
+    static std::vector<BVHNode> vectorize(BVHNode *root) {
+        std::vector<BVHNode> nodes;
+        std::stack<BVHNode *> stack;
+        if (root) {
+            stack.push(root);
+            while (!stack.empty()) {
+                auto *node = stack.top();
+                stack.pop();
+                node->index = nodes.size();
+                nodes.push_back(*node);
+                if (node->right != nullptr) {
+                    stack.push(node->right);
+                }
+                if (node->left != nullptr) {
+                    stack.push(node->left);
+                }
+            }
+            for (auto & node : nodes) {
+                if (node.right != nullptr) {
+                    node.rightIndex = node.right->index;
+                }
+            }
+        }
+        return nodes;
+    }
+
     bool isLeaf() {
         return left == nullptr && right == nullptr;
     }
 
     static bool
-    partition(BVHNode *node, std::list<Triangle> &triangles, std::list<Sphere> &spheres, std::list<Triangle> &leftHalf,
-              std::list<Sphere> &leftSprs, std::list<Triangle> &rightHalf, std::list<Sphere> &rightSprs, Scene &scene) {
+    partition(BVHNode *node, std::vector<Triangle> &triangles, std::vector<Sphere> &spheres, std::vector<Triangle> &leftHalf,
+              std::vector<Sphere> &leftSprs, std::vector<Triangle> &rightHalf, std::vector<Sphere> &rightSprs, Scene &scene) {
         Box currentBox = node->box;
         auto start = currentBox.min[node->axis], end = currentBox.max[node->axis];
         auto midPoint = (start + end) / 2;
         int maxTries = 19; // doing this to eliminate empty boxes. this is very important for horse_and_mug. withot this, it does not render.
-        while (maxTries-- && ((leftHalf.empty() && leftSprs.empty()) || (rightHalf.empty() && rightSprs.empty()))) {
-            leftHalf.clear();
-            rightHalf.clear();
-            leftSprs.clear();
-            rightSprs.clear();
+        int leftCount = 0, rightCount = 0;
+        while (maxTries-- && (leftCount == 0 || rightCount == 0)) {
+            leftCount = 0;
+            rightCount = 0;
 
             for (auto &face: triangles) {// splitting by location instad of sorting the triangles and splitting from median is way faster
                 if (face.center[node->axis] < midPoint) {
-                    leftHalf.push_back(face);
+                    leftCount++;
                 } else {
-                    rightHalf.push_back(face);
+                    rightCount++;
                 }
             }
             for (auto &sphere: spheres) {// splitting by location instad of sorting the triangles and splitting from median is way faster
                 if (scene.vertex_data[sphere.center_vertex_id - 1][node->axis] < midPoint) {
-                    leftSprs.push_back(sphere);
+                    leftCount++;
                 } else {
-                    rightSprs.push_back(sphere);
+                    rightCount++;
                 }
             }
 
-            if (leftHalf.empty() && leftSprs.empty()) {
+            if (leftCount == 0) {
                 start = midPoint;
                 midPoint = (start + end) / 2;
             }
-            if (rightHalf.empty() && rightSprs.empty()) {
+            else if (rightCount == 0) {
                 end = midPoint;
                 midPoint = (start + end) / 2;
+            } else {
+                for (auto &face: triangles) {// splitting by location instad of sorting the triangles and splitting from median is way faster
+                    if (face.center[node->axis] < midPoint) {
+                        leftHalf.push_back(face);
+                    } else {
+                        rightHalf.push_back(face);
+                    }
+                }
+                for (auto &sphere: spheres) {// splitting by location instad of sorting the triangles and splitting from median is way faster
+                    if (scene.vertex_data[sphere.center_vertex_id - 1][node->axis] < midPoint) {
+                        leftSprs.push_back(sphere);
+                    } else {
+                        rightSprs.push_back(sphere);
+                    }
+                }
             }
         }
         return !((leftHalf.empty() && leftSprs.empty()) || (rightHalf.empty() && rightSprs.empty()));
@@ -125,12 +167,14 @@ struct BVHNode {
 struct BVHTree {
     BVHNode *root;
     Scene &scene;
+    std::vector<BVHNode> nodes;
 
     explicit BVHTree(Scene &scene) : root(nullptr), scene(scene) {}
 
-    void build(std::list<Triangle> triangles) {
+    void build(std::vector<Triangle> triangles) {
         root = BVHNode::build(std::move(triangles),
                               {scene.spheres.begin(), scene.spheres.end()}, 0, scene);
+        nodes = BVHNode::vectorize(root);
     }
 
 

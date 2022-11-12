@@ -173,27 +173,27 @@ public:
 
     Intersection getFirstIntersection(Scene &scene, BVHTree &tree) {
         Intersection firstIntersection = {-1, -1, {-1, -1}, -1, false};
-        std::stack<BVHNode *> stack = startTraversing();
+        auto stack = startTraversing();
         float tMax = std::numeric_limits<float>::max();
 
 
         while (!stack.empty()) {
             auto node = stack.top();
             stack.pop();
-            auto intersection = intersects(node->box);
+            auto intersection = intersects(tree.nodes[node].box);
 
             if (intersection.exists && intersection.t <= tMax) {
-                if (!node->isLeaf()) {
-                    if (direction[node->axis] > 0) {
-                        stack.push(node->right);
-                        stack.push(node->left);
+                if (!tree.nodes[node].isLeaf()) {
+                    if (direction[tree.nodes[node].axis] > 0) {
+                        stack.push(tree.nodes[node].rightIndex);
+                        stack.push(node+1);
                     } else {
-                        stack.push(node->left);
-                        stack.push(node->right);
+                        stack.push(node+1);
+                        stack.push(tree.nodes[node].rightIndex);
                     }
 
                 } else {
-                    for (auto triangle: node->triangles) {
+                    for (auto triangle: tree.nodes[node].triangles) {
                         auto intersectionPoint = intersects(scene, triangle);
                         if (intersectionPoint.exists) {
                             if (intersectionPoint.tSmall < firstIntersection.tSmall || firstIntersection.tSmall == -1) {
@@ -202,7 +202,7 @@ public:
                             }
                         }
                     }
-                    for (auto &sphere: node->spheres) {
+                    for (auto &sphere: tree.nodes[node].spheres) {
                         auto intersectionPoint = intersects(sphere);
                         if (intersectionPoint.exists) {
                             if (intersectionPoint.tSmall < firstIntersection.tSmall || firstIntersection.tSmall == -1) {
@@ -223,7 +223,7 @@ public:
 
     Intersection getAnyIntersectionUntilT(Scene &scene, BVHTree &tree, float t) {
         Intersection firstIntersection = {-1, -1, {0}, -1, false};
-        std::stack<BVHNode *> stack = startTraversing();
+        auto stack = startTraversing();
 
         while (!stack.empty()) {
             auto node = traverse(stack);
@@ -249,30 +249,29 @@ public:
         return firstIntersection;
     }
 
-    std::stack<BVHNode *> startTraversing() {
-        std::stack<BVHNode *> stack;
+    std::stack<int> startTraversing() {
+        std::stack<int> stack;
         if (tree.root) {
-            stack.push(tree.root);
+            stack.push(0);
         }
-
         return stack;
     }
 
 
-    BVHNode *traverse(std::stack<BVHNode *> &stack) {
+    BVHNode *traverse(std::stack<int> &stack) {
         auto node = stack.top();
         stack.pop();
-        if (intersects(node->box).exists) {
-            if (!node->isLeaf()) {
-                if (direction[node->axis] > 0) {
-                    stack.push(node->right);
-                    stack.push(node->left);
+        if (intersects(tree.nodes[node].box).exists) {
+            if (!tree.nodes[node].isLeaf()) {
+                if (direction[tree.nodes[node].axis] > 0) {
+                    stack.push(tree.nodes[node].rightIndex);
+                    stack.push(node+1);
                 } else {
-                    stack.push(node->left);
-                    stack.push(node->right);
+                    stack.push(node+1);
+                    stack.push(tree.nodes[node].rightIndex);
                 }
             }
-            return node;
+            return &(tree.nodes[node]);
         }
         return nullptr;
     }
@@ -331,7 +330,7 @@ public:
     EyeRayGenerator eyeRayGenerator;
 
     explicit RayTracer(parser::Scene &scene) : scene(scene), tree(scene), eyeRayGenerator(scene, tree) {
-        std::list<Triangle> triangles(scene.triangles.begin(), scene.triangles.end());
+        std::vector<Triangle> triangles(scene.triangles.begin(), scene.triangles.end());
         for (auto &mesh: scene.meshes) {
             for (auto &face: mesh.faces) {
                 triangles.emplace_back(mesh.material_id, face);
@@ -469,7 +468,11 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < renderCount; ++i) {
         for (auto camera: scene.cameras) {
             auto image = rayTracer.render(camera);
+            auto begin1 = std::chrono::high_resolution_clock::now();
             write_ppm(camera.image_name.c_str(), (unsigned char *) image, camera.image_width, camera.image_height);
+            auto end1 = std::chrono::high_resolution_clock::now();
+            auto elapsed1 = std::chrono::duration_cast<std::chrono::nanoseconds>(end1 - begin1);
+            printf("Wrote ppm in %.3f seconds.\n", elapsed1.count() * 1e-9);
         }
     }
     auto end2 = std::chrono::high_resolution_clock::now();

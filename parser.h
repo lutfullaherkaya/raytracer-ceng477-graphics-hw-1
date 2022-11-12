@@ -269,7 +269,7 @@ namespace parser {
         void loadFromXml(const std::string &filepath);
 
 
-        Box getBoundingBox(std::list<Triangle> &faces) {
+        Box getBoundingBox(std::vector<Triangle> &faces) {
             Vec3f min = {std::numeric_limits<float>::max(), std::numeric_limits<float>::max(),
                          std::numeric_limits<float>::max()};
             Vec3f max = {-std::numeric_limits<float>::max(), -std::numeric_limits<float>::max(),
@@ -300,7 +300,7 @@ namespace parser {
             return {min, max};
         }
 
-        void extendBoundingBox(Box &box, std::list<Sphere> &sphereList) {
+        void extendBoundingBox(Box &box, std::vector<Sphere> &sphereList) {
             for (auto &sphere: sphereList) {
                 auto &center = vertex_data[sphere.center_vertex_id - 1];
                 for (int axis = 0; axis < 3; ++axis) {
