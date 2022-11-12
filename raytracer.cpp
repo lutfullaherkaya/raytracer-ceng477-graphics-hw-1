@@ -409,7 +409,7 @@ public:
                         break;
                     }
                 }
-                fflush(writer.outfile);
+                //fflush(writer.outfile);
 
             }
 
@@ -417,7 +417,6 @@ public:
 
 
 
-        auto begin2 = std::chrono::high_resolution_clock::now();
         for (unsigned int i = 0; i < processor_count; i++) {
             threads.emplace_back(&RayTracer::renderWithMultipleThreads, this, i, processor_count, &m, &cv, &ready, &lastRenderedRow, &renderedRows);
         }

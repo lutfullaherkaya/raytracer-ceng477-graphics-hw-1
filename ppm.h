@@ -2,6 +2,7 @@
 #define __ppm_h__
 #include <stdexcept>
 #include "parser.h"
+#pragma GCC diagnostic ignored "-Wsign-compare"
 void write_ppm(const char* filename, unsigned char* data, int width, int height);
 class PPMWriter {
 public:
