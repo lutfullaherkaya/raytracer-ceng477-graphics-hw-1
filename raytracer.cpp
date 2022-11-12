@@ -47,6 +47,7 @@ public:
         return origin + direction * t;
     }
 
+
     const Vec3f origin;
     Vec3f direction;
     const Vec3f oneOverDirection; // multiplication is faster than division so we cache this.
@@ -177,7 +178,8 @@ public:
 
 
         while (!stack.empty()) {
-            auto node = stack.top();            stack.pop();
+            auto node = stack.top();
+            stack.pop();
             auto intersection = intersects(node->box);
 
             if (intersection.exists && intersection.t <= tMax) {
@@ -249,7 +251,10 @@ public:
 
     std::stack<BVHNode *> startTraversing() {
         std::stack<BVHNode *> stack;
-        stack.push(tree.root);
+        if (tree.root) {
+            stack.push(tree.root);
+        }
+
         return stack;
     }
 
@@ -337,12 +342,13 @@ public:
             auto &b = scene.vertex_data[triangle.indices.v1_id - 1];
             auto &c = scene.vertex_data[triangle.indices.v2_id - 1];
             triangle.normal = ((b - a).crossProduct(c - a)).normalize();
+            triangle.center = (a + b + c) / 3;
         }
         tree.build(triangles);
     }
 
-    void renderRowsWithModulo(int threadNumber, int totalThreads) {
-        for (int rowNum = threadNumber; rowNum < currentCamera->image_height; rowNum += totalThreads) {
+    void renderWithMultipleThreads(int threadNumber, int totalThreads) {
+        for (int rowNum = threadNumber; rowNum < currentCamera->image_height; rowNum+=totalThreads){
             for (int colNum = 0; colNum < currentCamera->image_width; colNum++) {
                 Ray eyeRay = eyeRayGenerator.generate(rowNum, colNum);
                 auto raytracedColor = rayTrace(eyeRay);
@@ -358,19 +364,18 @@ public:
         eyeRayGenerator.init(currentCamera);
         auto processor_count = std::thread::hardware_concurrency();
         if (processor_count == 0) {
-            processor_count = 8;
+            processor_count = 8; // todo: try out different thread numbers for inek. maybe inek does not have 4 cores
         }
         std::vector<std::thread> threads;
         threads.reserve(processor_count);
-        std::cout << "Rendering with " << processor_count << " threads (cores)..." << std::endl;
+        std::cout << "Rendering " << camera.image_name << " with " << processor_count << " threads (cores)..." << std::endl;
+        auto begin2 = std::chrono::high_resolution_clock::now();
         for (unsigned int i = 0; i < processor_count; i++) {
-            threads.emplace_back(&RayTracer::renderRowsWithModulo, this, i, processor_count);
+            threads.emplace_back(&RayTracer::renderWithMultipleThreads, this, i, processor_count);
         }
         for (auto &thread: threads) {
             thread.join();
         }
-
-
         return image;
 
     }

@@ -224,6 +224,15 @@ namespace parser {
                    point.y >= min.y && point.y <= max.y &&
                    point.z >= min.z && point.z <= max.z;
         }
+        int getWidestAxis() {
+            int widestAxis = 0;
+            for (int axis = 1; axis < 3; ++axis) {
+                if (max[axis] - min[axis] > max[widestAxis] - min[widestAxis]) {
+                    widestAxis = axis;
+                }
+            }
+            return widestAxis;
+        }
     };
 
     struct Mesh {
@@ -235,6 +244,7 @@ namespace parser {
         int material_id;
         Face indices;
         Vec3f normal = Vec3f{0, 0, 0};
+        Vec3f center = Vec3f{0, 0, 0};
         Triangle() = default;
 
         Triangle(int material_id, Face indices) : material_id(material_id), indices(indices) {}
