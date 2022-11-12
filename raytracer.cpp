@@ -357,7 +357,7 @@ public:
                 raytracedColor.toPixel(currentImage[currentCamera->image_width * rowNum + colNum]);
             }
             (*renderedRows)[rowNum] = true;
-            if ((rowNum % 64 == 63) && rowNum != currentCamera->image_height - 1) {
+            if ((rowNum % 32 == 31)) {
                 *lastRenderedRow = rowNum;
                 std::lock_guard<std::mutex> lk(*m);
                 /*std::cout << "Thread " << threadNumber << " finished row " << rowNum << std::endl;*/
