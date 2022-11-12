@@ -348,14 +348,15 @@ public:
         tree.build(triangles);
     }
 
-    void renderWithMultipleThreads(int threadNumber, int totalThreads, std::mutex *m, std::condition_variable *cv, bool *ready, int *lastRenderedRow) {
+    void renderWithMultipleThreads(int threadNumber, int totalThreads, std::mutex *m, std::condition_variable *cv, bool *ready, int *lastRenderedRow, std::vector<bool> *renderedRows) {
         for (int rowNum = threadNumber; rowNum < currentCamera->image_height; rowNum+=totalThreads){
             for (int colNum = 0; colNum < currentCamera->image_width; colNum++) {
                 Ray eyeRay = eyeRayGenerator.generate(rowNum, colNum);
                 auto raytracedColor = rayTrace(eyeRay);
                 raytracedColor.toPixel(currentImage[currentCamera->image_width * rowNum + colNum]);
             }
-            if (rowNum % 128 == 127) {
+            (*renderedRows)[rowNum] = true;
+            if (rowNum % 64 == 63) {
                 *lastRenderedRow = rowNum;
                 std::lock_guard<std::mutex> lk(*m);
 /*
@@ -368,7 +369,7 @@ public:
         }
     }
 
-    Image render(Camera &camera) {
+    void render(Camera &camera) {
         auto image = new Pixel[camera.image_width * camera.image_height];
         currentCamera = &camera;
         currentImage = image;
@@ -377,14 +378,18 @@ public:
         std::condition_variable cv;
         int lastRenderedRow = 0;
         bool ready = false;
+        std::vector<bool> renderedRows(camera.image_height, false);
+
 
         auto processor_count = std::thread::hardware_concurrency();
         if (processor_count == 0) {
             processor_count = 8; // todo: try out different thread numbers for inek. maybe inek does not have 4 cores
         }
+        processor_count--;
+
         std::vector<std::thread> threads;
         threads.reserve(processor_count);
-        std::cout << "Rendering " << camera.image_name << " with " << processor_count << " threads (cores)..." << std::endl;
+        std::cout << "Rendering " << camera.image_name << " with " << processor_count << " threads (cores) and writing to disk with 1 thread" << std::endl;
 
         std::thread ppmWriterThread([&](){
             PPMWriter writer(camera.image_name.c_str(), (unsigned char *) image, camera.image_width, camera.image_height);
@@ -398,7 +403,11 @@ public:
                 ready = false;
                 lk.unlock();
                 for (; writer.lastWrittenRow < lastRenderedRowCopy;) {
-                    writer.writeNextRow();
+                    if (renderedRows[writer.lastWrittenRow+1]) {
+                        writer.writeNextRow();
+                    } else {
+                        break;
+                    }
                 }
                 fflush(writer.outfile);
 
@@ -410,7 +419,7 @@ public:
 
         auto begin2 = std::chrono::high_resolution_clock::now();
         for (unsigned int i = 0; i < processor_count; i++) {
-            threads.emplace_back(&RayTracer::renderWithMultipleThreads, this, i, processor_count, &m, &cv, &ready, &lastRenderedRow);
+            threads.emplace_back(&RayTracer::renderWithMultipleThreads, this, i, processor_count, &m, &cv, &ready, &lastRenderedRow, &renderedRows);
         }
         for (auto &thread: threads) {
             thread.join();
@@ -423,7 +432,6 @@ public:
         }
 
         ppmWriterThread.join();
-        return image;
 
     }
 
@@ -516,7 +524,7 @@ int main(int argc, char *argv[]) {
     int renderCount = 1; // todo: make it 1. 10 is for performance measurement
     for (int i = 0; i < renderCount; ++i) {
         for (auto camera: scene.cameras) {
-            auto image = rayTracer.render(camera);
+            rayTracer.render(camera);
         }
     }
     auto end2 = std::chrono::high_resolution_clock::now();
