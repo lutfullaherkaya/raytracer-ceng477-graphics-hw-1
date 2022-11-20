@@ -23,7 +23,8 @@ float clampFloat(float x, float min, float max) {
 }
 
 
-#define T_MIN_EPSILON 0.001f
+#define DO_SSAA_ANTI_ALIASING true
+
 
 struct Intersection {
     float tSmall, tLarge;
@@ -186,9 +187,9 @@ public:
                 if (!tree.nodes[node].isLeaf()) {
                     if (direction[tree.nodes[node].axis] > 0) {
                         stack.push(tree.nodes[node].rightIndex);
-                        stack.push(node+1);
+                        stack.push(node + 1);
                     } else {
-                        stack.push(node+1);
+                        stack.push(node + 1);
                         stack.push(tree.nodes[node].rightIndex);
                     }
 
@@ -347,7 +348,7 @@ public:
     }
 
     void renderWithMultipleThreads(int threadNumber, int totalThreads) {
-        for (int rowNum = threadNumber; rowNum < currentCamera->image_height; rowNum+=totalThreads){
+        for (int rowNum = threadNumber; rowNum < currentCamera->image_height; rowNum += totalThreads) {
             for (int colNum = 0; colNum < currentCamera->image_width; colNum++) {
                 Ray eyeRay = eyeRayGenerator.generate(rowNum, colNum);
                 auto raytracedColor = rayTrace(eyeRay);
@@ -451,6 +452,36 @@ public:
 
 };
 
+class ImageProcessor {
+public:
+    static Image downSample(Image image, int width, int height, int factor = 2) {
+        auto newWidth = width / factor;
+        auto newHeight = height / factor;
+        auto newImage = new Pixel[newWidth * newHeight];
+        for (int i = 0; i < newHeight; i++) {
+            for (int j = 0; j < newWidth; j++) {
+                auto &pixel = newImage[i * newWidth + j];
+                Vec3i sum = {0, 0, 0};
+                for (int k = 0; k < factor; k++) {
+                    for (int l = 0; l < factor; l++) {
+                        auto &oldPixel = image[(i * factor + k) * width + j * factor + l];
+                        sum[0] += oldPixel[0];
+                        sum[1] += oldPixel[1];
+                        sum[2] += oldPixel[2];
+                    }
+                }
+                pixel[0] = sum[0] / (factor * factor);
+                pixel[1] = sum[1] / (factor * factor);
+                pixel[2] = sum[2] / (factor * factor);
+
+            }
+        }
+        return newImage;
+
+
+    }
+};
+
 int main(int argc, char *argv[]) {
     parser::Scene scene;
     scene.loadFromXml(argv[1]);
@@ -462,12 +493,26 @@ int main(int argc, char *argv[]) {
     auto elapsed1 = std::chrono::duration_cast<std::chrono::nanoseconds>(end1 - begin1);
     printf("Planted trees in %.3f seconds.\n", elapsed1.count() * 1e-9);
 
+    if (DO_SSAA_ANTI_ALIASING) {
+        std::cout << "Super Sampling Anti aliasing is enabled. (2x)" << std::endl;
+    }
 
     auto begin2 = std::chrono::high_resolution_clock::now();
     int renderCount = 1; // todo: make it 1. 10 is for performance measurement
     for (int i = 0; i < renderCount; ++i) {
         for (auto camera: scene.cameras) {
+            if (DO_SSAA_ANTI_ALIASING) {
+                camera.image_width *= 2;
+                camera.image_height *= 2;
+            }
             auto image = rayTracer.render(camera);
+            if (DO_SSAA_ANTI_ALIASING) {
+                auto ssaadImage = ImageProcessor::downSample(image, camera.image_width, camera.image_height);
+                /*delete[] image;*/
+                image = ssaadImage;
+                camera.image_width /= 2;
+                camera.image_height /= 2;
+            }
             write_ppm(camera.image_name.c_str(), (unsigned char *) image, camera.image_width, camera.image_height);
         }
     }
