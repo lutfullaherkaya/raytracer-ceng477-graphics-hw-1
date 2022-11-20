@@ -9,8 +9,6 @@
 #include <stack>
 #include <utility>
 #include <thread>
-#include <mutex>
-#include <condition_variable>
 
 using namespace parser;
 
@@ -188,9 +186,9 @@ public:
                 if (!tree.nodes[node].isLeaf()) {
                     if (direction[tree.nodes[node].axis] > 0) {
                         stack.push(tree.nodes[node].rightIndex);
-                        stack.push(node + 1);
+                        stack.push(node+1);
                     } else {
-                        stack.push(node + 1);
+                        stack.push(node+1);
                         stack.push(tree.nodes[node].rightIndex);
                     }
 
@@ -348,112 +346,36 @@ public:
         tree.build(triangles);
     }
 
-    void renderWithMultipleThreads(int threadNumber, int totalThreads, std::mutex *m, std::condition_variable *cv,
-                                   bool *ready, int *lastRenderedRow, std::vector<bool> *renderedRows) {
-        for (int rowNum = threadNumber; rowNum < currentCamera->image_height; rowNum += totalThreads) {
+    void renderWithMultipleThreads(int threadNumber, int totalThreads) {
+        for (int rowNum = threadNumber; rowNum < currentCamera->image_height; rowNum+=totalThreads){
             for (int colNum = 0; colNum < currentCamera->image_width; colNum++) {
                 Ray eyeRay = eyeRayGenerator.generate(rowNum, colNum);
                 auto raytracedColor = rayTrace(eyeRay);
                 raytracedColor.toPixel(currentImage[currentCamera->image_width * rowNum + colNum]);
             }
-            (*renderedRows)[rowNum] = true;
-            if ((rowNum % 32 == 31)) {
-                *lastRenderedRow = rowNum;
-                std::lock_guard<std::mutex> lk(*m);
-                /*std::cout << "Thread " << threadNumber << " finished row " << rowNum << std::endl;*/
-                *ready = true;
-                cv->notify_all();
-            }
-
         }
     }
 
-    void render(Camera &camera) {
+    Image render(Camera &camera) {
         auto image = new Pixel[camera.image_width * camera.image_height];
         currentCamera = &camera;
         currentImage = image;
         eyeRayGenerator.init(currentCamera);
-        std::mutex m;
-        std::condition_variable cv;
-        bool renderingEnded = false;
-        int lastRenderedRow = 0;
-        bool ready = false;
-        std::vector<bool> renderedRows(camera.image_height, false);
-
-
         auto processor_count = std::thread::hardware_concurrency();
         if (processor_count == 0) {
             processor_count = 8; // todo: try out different thread numbers for inek. maybe inek does not have 4 cores
         }
-        processor_count--;
-
         std::vector<std::thread> threads;
         threads.reserve(processor_count);
-        std::cout << "Rendering " << camera.image_name << " with " << processor_count
-                  << " threads (cores) and writing to disk with 1 thread" << std::endl;
-        PPMWriter writer(camera.image_name.c_str(), (unsigned char *) image, camera.image_width,
-                         camera.image_height);
-        std::thread ppmWriterThread([&]() {
-
-            while (!renderingEnded && writer.lastWrittenRow < writer.height - 1) {
-                std::unique_lock<std::mutex> lk(m);
-                if (renderingEnded) {
-                    lk.unlock();
-                    break;
-                }
-                cv.wait(lk, [&]() { return ready; });
-                if (renderingEnded) {
-                    lk.unlock();
-                    break;
-                }
-                /*std::cout << "Writing row from " << writer.lastWrittenRow << "to " << lastRenderedRow
-                          << " with last written row " << writer.lastWrittenRow << std::endl;*/
-                int lastRenderedRowCopy = lastRenderedRow;
-                ready = false;
-
-                lk.unlock();
-                for (; writer.lastWrittenRow < lastRenderedRowCopy;) {
-                    if (renderedRows[writer.lastWrittenRow + 1]) {
-                        /*std::cout << "Writing row " << writer.lastWrittenRow << std::endl;*/
-                        writer.writeNextRow();
-
-                    } else {
-                        /*std::cout << "Waiting for row " << writer.lastWrittenRow + 1 << " to be rendered" << std::endl;*/
-                        break;
-                    }
-                }
-                /*cv.notify_one();*/
-                //fflush(writer.outfile);
-
-            }
-
-        });
-
-
+        std::cout << "Rendering " << camera.image_name << " with " << processor_count << " cores..." << std::endl;
+        auto begin2 = std::chrono::high_resolution_clock::now();
         for (unsigned int i = 0; i < processor_count; i++) {
-            threads.emplace_back(&RayTracer::renderWithMultipleThreads, this, i, processor_count, &m, &cv, &ready,
-                                 &lastRenderedRow, &renderedRows);
+            threads.emplace_back(&RayTracer::renderWithMultipleThreads, this, i, processor_count);
         }
         for (auto &thread: threads) {
             thread.join();
         }
-
-        std::unique_lock<std::mutex> lk(m);
-        renderingEnded = true;
-        ready = true;
-        cv.notify_one();
-        lk.unlock();
-        ppmWriterThread.join();
-
-        /*std::cout << "Writing remaining rows" << std::endl;*/
-        lastRenderedRow = camera.image_height - 1;
-        for (; writer.lastWrittenRow < lastRenderedRow;) {
-
-
-            writer.writeNextRow();
-
-        }
-
+        return image;
 
     }
 
@@ -545,7 +467,8 @@ int main(int argc, char *argv[]) {
     int renderCount = 1; // todo: make it 1. 10 is for performance measurement
     for (int i = 0; i < renderCount; ++i) {
         for (auto camera: scene.cameras) {
-            rayTracer.render(camera);
+            auto image = rayTracer.render(camera);
+            write_ppm(camera.image_name.c_str(), (unsigned char *) image, camera.image_width, camera.image_height);
         }
     }
     auto end2 = std::chrono::high_resolution_clock::now();
