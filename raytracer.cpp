@@ -24,6 +24,7 @@ float clampFloat(float x, float min, float max) {
 
 
 #define DO_SSAA_ANTI_ALIASING true
+#define SSAA_AA_FACTOR 4
 
 
 struct Intersection {
@@ -494,7 +495,7 @@ int main(int argc, char *argv[]) {
     printf("Planted trees in %.3f seconds.\n", elapsed1.count() * 1e-9);
 
     if (DO_SSAA_ANTI_ALIASING) {
-        std::cout << "Super Sampling Anti aliasing is enabled. (2x)" << std::endl;
+        std::cout << "Super Sampling Anti aliasing is enabled. (" << SSAA_AA_FACTOR << "x)" << std::endl;
     }
 
     auto begin2 = std::chrono::high_resolution_clock::now();
@@ -502,16 +503,16 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < renderCount; ++i) {
         for (auto camera: scene.cameras) {
             if (DO_SSAA_ANTI_ALIASING) {
-                camera.image_width *= 2;
-                camera.image_height *= 2;
+                camera.image_width *= SSAA_AA_FACTOR;
+                camera.image_height *= SSAA_AA_FACTOR;
             }
             auto image = rayTracer.render(camera);
             if (DO_SSAA_ANTI_ALIASING) {
-                auto ssaadImage = ImageProcessor::downSample(image, camera.image_width, camera.image_height);
-                /*delete[] image;*/
+                auto ssaadImage = ImageProcessor::downSample(image, camera.image_width, camera.image_height, SSAA_AA_FACTOR);
+                delete[] image;
                 image = ssaadImage;
-                camera.image_width /= 2;
-                camera.image_height /= 2;
+                camera.image_width /= SSAA_AA_FACTOR;
+                camera.image_height /= SSAA_AA_FACTOR;
             }
             write_ppm(camera.image_name.c_str(), (unsigned char *) image, camera.image_width, camera.image_height);
         }
