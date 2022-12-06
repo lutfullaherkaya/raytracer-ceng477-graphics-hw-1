@@ -24,7 +24,8 @@ float clampFloat(float x, float min, float max) {
 
 
 #define DO_SSAA_ANTI_ALIASING true
-#define SSAA_AA_FACTOR 4
+// factor is the integer to multiply each dimension by
+#define SSAA_AA_FACTOR 2
 
 
 struct Intersection {
@@ -495,7 +496,7 @@ int main(int argc, char *argv[]) {
     printf("Planted trees in %.3f seconds.\n", elapsed1.count() * 1e-9);
 
     if (DO_SSAA_ANTI_ALIASING) {
-        std::cout << "Super Sampling Anti aliasing is enabled. (" << SSAA_AA_FACTOR << "x)" << std::endl;
+        std::cout << "Super Sampling Anti aliasing is enabled. (" << SSAA_AA_FACTOR << "*" << SSAA_AA_FACTOR << "x)" << std::endl;
     }
 
     auto begin2 = std::chrono::high_resolution_clock::now();
